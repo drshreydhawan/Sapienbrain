@@ -75,6 +75,8 @@
   .ai.done .txt .t{color:var(--faint);text-decoration:line-through}
   .ai .src{display:block;font:400 11px 'IBM Plex Mono',monospace;color:var(--faint);margin-top:2px}
   .due{color:var(--blue);font:500 11px 'IBM Plex Mono',monospace;margin-left:6px}
+  .due.overdue{color:var(--rec);font-weight:700}
+  .mini{text-align:center;color:var(--faint);font:500 12px 'IBM Plex Mono',monospace;margin-top:-4px}
   .age{color:var(--faint);font:500 11px 'IBM Plex Mono',monospace;margin-left:6px}
   .age.old{color:var(--rec)}
   .pill{flex:none;border-radius:999px;border:1px solid var(--amber);background:none;color:var(--amber);font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;padding:5px 9px;cursor:pointer;min-width:64px;text-align:center}
@@ -113,7 +115,8 @@
 <div class="app" id="app"></div>
 <nav><div class="nav-in">
   <button id="tab-rec" class="on" onclick="go('home')">Record</button>
-  <button id="tab-dig" onclick="go('digest')">Digest</button>
+  <button id="tab-dash" onclick="go('dashboard')">Dashboard</button>
+  <button id="tab-ses" onclick="go('sessions')">Sessions</button>
   <button id="tab-ask" onclick="go('ask')">Ask</button>
 </div></nav>
 
@@ -149,16 +152,27 @@ window.onerror = function(msg, src, line){
 };
 
 /* ================= storage ================= */
+const ARCHIVE_DAYS = 30;
 function loadAll(){
   try{ const r = localStorage.getItem('brain-sessions'); sessions = r ? JSON.parse(r) : []; }catch(e){ sessions = []; }
   try{ const f = localStorage.getItem('recall-folders'); folders = f ? JSON.parse(f) : DEFAULT_FOLDERS.slice(); }catch(e){ folders = DEFAULT_FOLDERS.slice(); }
   if(!folders.includes(FALLBACK)) folders.push(FALLBACK);
-  // migrate: done boolean -> status
+  let purged = false;
+  const cutoff = Date.now() - ARCHIVE_DAYS*86400000;
   sessions.forEach(s=>{
     if(!s.category) s.category = FALLBACK;
     if(!s.kind) s.kind = (s.actions||[]).length ? 'tasks' : 'note';
-    (s.actions||[]).forEach(a=>{ if(!a.status) a.status = a.done ? 'done' : 'open'; });
+    if(!s.expenses) s.expenses = [];
+    s.actions = (s.actions||[]).filter(a=>{
+      if(!a.status) a.status = a.done ? 'done' : 'open';
+      if(a.status==='killed'){
+        if(!a.archivedAt) a.archivedAt = Date.now();
+        if(a.archivedAt < cutoff){ purged = true; return false; }
+      }
+      return true;
+    });
   });
+  if(purged) saveAll();
 }
 let storageWarn = '';
 function saveAll(){
@@ -336,12 +350,13 @@ First decide what KIND of capture this is \u2014 don't force every recording int
 - "mixed" \u2014 genuinely has both notable content AND real action items
 
 Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
-{"title": "short 3-7 word title", "kind": "tasks | note | log | mixed", "summary": "2-5 sentence summary \u2014 for note/log kinds this is the main content, so make it genuinely useful to re-read later, not just a gist", "category": "one folder name", "action_items": [{"text": "specific task phrased as an instruction", "due": "YYYY-MM-DD or null"}, ...]}
+{"title": "short 3-7 word title", "kind": "tasks | note | log | mixed", "summary": "2-5 sentence summary \u2014 for note/log kinds this is the main content, so make it genuinely useful to re-read later, not just a gist", "category": "one folder name", "action_items": [{"text": "specific task phrased as an instruction", "due": "YYYY-MM-DD or null"}, ...], "expenses": [{"desc": "what it was for", "amount": number, "currency": "INR"}, ...]}
 
 For "category" pick exactly one of: ${folders.join(' | ')}.
 Guide for the standard folders (ignore any that no longer exist): Clinic = dental clinic operations, patients, staff, labs, equipment. Bytesized = OSCE Coach, dental education, software products. Spice Riot = the food brand. Personal = family, errands, health, travel. Ideas = new product or business concepts. Custom folders should be matched by name.
-For "due": set a date only if spoken or clearly implied ("by Friday", "tomorrow"); today is ${new Date().toISOString().slice(0,10)}. Otherwise null.
+For "due": today is ${new Date().toISOString().slice(0,10)}. Resolve relative time expressions to real dates: "tomorrow", "next Tuesday", "in 3 days", "by Friday", "end of month" all become an actual YYYY-MM-DD. If a task is spoken as recurring or has no time reference, leave due null \u2014 do not guess a date that wasn't implied.
 action_items should be EMPTY for "note" and "log" kind sessions unless something genuinely actionable slipped in \u2014 do not invent tasks just to fill the field. Never pad a pure thought or reflection with a manufactured to-do.
+"expenses": only include a line if an actual amount of money spent, owed, or quoted is mentioned (a price, a bill, "spent X on Y", "the quote was X"). Assume INR unless another currency is stated. Do not invent amounts or log routine mentions of money with no figure attached. Empty array if none.
 
 TRANSCRIPT:
 ${transcript}`;
@@ -358,7 +373,7 @@ async function summarize(transcript){
 async function processTranscript(transcript, dur){
   recState = 'processing'; render();
   const session = { id:'s_'+Date.now(), date:new Date().toISOString(), duration:dur, transcript,
-    title:'Untitled session', summary:'', category:FALLBACK, actions:[], processed:false };
+    title:'Untitled session', summary:'', category:FALLBACK, actions:[], expenses:[], processed:false };
   const r = await summarize(transcript);
   if(r) applyResult(session, r);
   sessions.unshift(session);
@@ -372,6 +387,7 @@ function applyResult(s, r){
   s.kind = ['tasks','note','log','mixed'].includes(r.kind) ? r.kind : (((r.action_items||[]).length) ? 'tasks' : 'note');
   s.category = folders.includes(r.category) ? r.category : FALLBACK;
   s.actions = (r.action_items||[]).map(t=>({ text: typeof t==='string' ? t : (t.text||''), due:(t&&t.due)||null, status:'open' })).filter(a=>a.text);
+  s.expenses = (r.expenses||[]).map(e=>({ desc: (e&&e.desc)||'', amount: (e&&typeof e.amount==='number')?e.amount:null, currency: (e&&e.currency)||'INR' })).filter(e=>e.desc && e.amount);
   s.processed = true;
 }
 
@@ -394,7 +410,19 @@ function cycleStatus(sid, idx){
 function killAction(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
   s.actions[idx].status = 'killed';
+  s.actions[idx].archivedAt = Date.now();
   saveAll(); render();
+}
+function restoreAction(sid, idx){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  s.actions[idx].status = 'open';
+  s.actions[idx].archivedAt = null;
+  saveAll(); render();
+}
+function daysLeft(a){ return Math.max(0, ARCHIVE_DAYS - Math.floor((Date.now()-(a.archivedAt||Date.now()))/86400000)); }
+function moveFolder(sid, val){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  s.category = val; saveAll(); render();
 }
 function assignWA(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
@@ -548,30 +576,54 @@ function openCount(catName){
   const list = catName==='All' ? sessions : sessions.filter(x=>(x.category||FALLBACK)===catName);
   return list.reduce((k,x)=>k+(x.actions||[]).filter(a=>a.status==='open'||a.status==='waiting').length,0);
 }
+function isOverdue(a){ return a.due && a.status!=='done' && a.status!=='killed' && a.due < new Date().toISOString().slice(0,10); }
 function actionRow(s, i, withSrc){
   const a = s.actions[i];
   if(a.status==='killed') return '';
   const age = ageDays(s);
-  const ageTag = (a.status!=='done' && age>=2) ? ' <span class="age'+(age>7?' old':'')+'">'+age+'d</span>' : '';
+  const overdue = isOverdue(a);
+  const ageTag = (a.status!=='done' && !overdue && age>=2) ? ' <span class="age'+(age>7?' old':'')+'">'+age+'d</span>' : '';
+  const dueTag = a.due ? ' <b class="due'+(overdue?' overdue':'')+'">'+(overdue?'OVERDUE \u00b7 ':'')+esc(a.due)+'</b>' : '';
   const label = a.status==='open' ? 'OPEN' : a.status==='waiting' ? 'WAITING' : 'DONE';
   return '<div class="ai '+(a.status==='done'?'done':'')+'">'+
     '<button class="pill '+a.status+'" onclick="cycleStatus(\''+s.id+'\','+i+')">'+label+'</button>'+
-    '<div class="txt"><span class="t">'+esc(a.text)+'</span>'+(a.due?' <b class="due">'+esc(a.due)+'</b>':'')+ageTag+
+    '<div class="txt"><span class="t">'+esc(a.text)+'</span>'+dueTag+ageTag+
     (withSrc?'<span class="src">'+esc(s.title)+' \u00b7 '+fmtDate(s.date)+'</span>':'')+'</div>'+
     '<button class="ico" title="Assign on WhatsApp" onclick="assignWA(\''+s.id+'\','+i+')">\uD83D\uDCAC</button>'+
     '<a class="ico" title="Add to Google Calendar" href="'+gcalUrl(a,s)+'" target="_blank" rel="noopener">\uD83D\uDCC5</a>'+
     '<button class="kill" title="Dismiss task" onclick="killAction(\''+s.id+'\','+i+')">\u2715</button>'+
   '</div>';
 }
+function allOpenTasks(){
+  const out = [];
+  sessions.forEach(s=> (s.actions||[]).forEach((a,i)=>{ if(a.status==='open'||a.status==='waiting') out.push({s,a,i}); }));
+  out.sort((x,y)=>{
+    const xo = isOverdue(x.a), yo = isOverdue(y.a);
+    if(xo!==yo) return xo?-1:1;
+    if(x.a.due && y.a.due) return x.a.due < y.a.due ? -1 : x.a.due > y.a.due ? 1 : 0;
+    if(x.a.due) return -1;
+    if(y.a.due) return 1;
+    return new Date(y.s.date) - new Date(x.s.date);
+  });
+  return out;
+}
+function monthExpenses(){
+  const now = new Date(); const ym = now.toISOString().slice(0,7);
+  const rows = [];
+  sessions.forEach(s=> (s.expenses||[]).forEach(e=>{ if(s.date.slice(0,7)===ym) rows.push({s,e}); }));
+  return rows;
+}
 
 /* ================= views ================= */
 function render(){
   document.getElementById('tab-rec').className = (view==='home'||view==='detail'||view==='settings') ? 'on':'';
-  document.getElementById('tab-dig').className = view==='digest' ? 'on':'';
+  document.getElementById('tab-dash').className = view==='dashboard' ? 'on':'';
+  document.getElementById('tab-ses').className = view==='sessions' ? 'on':'';
   document.getElementById('tab-ask').className = view==='ask' ? 'on':'';
   const app = document.getElementById('app');
   if(view==='detail'){ app.innerHTML = renderDetail(); return; }
-  if(view==='digest'){ app.innerHTML = renderDigest(); return; }
+  if(view==='dashboard'){ app.innerHTML = renderDashboard(); return; }
+  if(view==='sessions'){ app.innerHTML = renderSessions(); return; }
   if(view==='ask'){ app.innerHTML = renderAsk(); return; }
   if(view==='settings'){ app.innerHTML = renderSettings(); return; }
   app.innerHTML = renderHome();
@@ -579,7 +631,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v13</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v14</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -589,6 +641,10 @@ function headerHtml(title){
 
 function renderHome(){
   let h = headerHtml();
+  const openN = allOpenTasks().length;
+  if(recState==='idle' && !showTyped){
+    h += '<div class="mini">'+openN+' open task'+(openN===1?'':'s')+(sessions.length?' \u00b7 '+sessions.length+' session'+(sessions.length===1?'':'s'):'')+'</div>';
+  }
   h += '<div class="hero '+(recState==='recording'?'recording':'')+'">'+
     '<button class="recbtn" onclick="toggleRecord()" '+(recState==='processing'?'disabled':'')+'>'+(recState==='recording'?'STOP':'RECORD')+'</button>'+
     '<div class="timer" id="timer">'+fmtDur(elapsed)+'</div>'+
@@ -603,8 +659,11 @@ function renderHome(){
     h += '<textarea id="typed" class="typedbox" rows="4" oninput="typedDraft=this.value" placeholder="Paste or type notes, then process \u2014 same pipeline as voice.">'+esc(typedDraft)+'</textarea>'+
       '<button class="retry" style="width:100%" onclick="submitTyped()">Process with Claude</button>';
   }
+  return h;
+}
 
-  h += '<div class="sect">Sessions</div>';
+function renderSessions(){
+  let h = '<header><div class="brand">Sessions</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
   h += '<div class="cats">'+['All'].concat(folders).map(c=>{
     const n = openCount(c);
     return '<button class="chip '+(activeCat===c?'on':'')+'" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';render()">'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
@@ -637,9 +696,12 @@ function renderList(){ const el=document.getElementById('list'); if(el) el.inner
 function renderDetail(){
   const s = sessions.find(x=>x.id===currentId);
   if(!s){ view='home'; return renderHome(); }
-  let h = '<button class="back" onclick="go(\'home\')">\u2039 Back</button>'+
+  let h = '<button class="back" onclick="go(\'sessions\')">\u2039 Back</button>'+
     '<div class="dtitle">'+esc(s.title)+' <span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></div>'+
-    '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+' \u00b7 '+esc(s.category)+'</div><div class="dbody">';
+    '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+'</div>'+
+    '<select class="lang" style="margin-top:8px" onchange="moveFolder(\''+s.id+'\',this.value)">'+
+      folders.map(f=>'<option value="'+esc(f)+'" '+(f===s.category?'selected':'')+'>'+esc(f)+'</option>').join('')+
+    '</select><div class="dbody">';
   if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
   if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
   if(s.summary) h += '<p>'+esc(s.summary)+'</p>';
@@ -651,27 +713,46 @@ function renderDetail(){
   } else if(s.kind==='note' || s.kind==='log'){
     h += '<div class="note">No action items \u2014 filed as a '+kindLabel(s.kind).toLowerCase()+' for reference.</div>';
   }
+  if((s.expenses||[]).length){
+    h += '<div class="sect">Expenses</div>';
+    h += s.expenses.map(e=>'<div class="frow"><span>'+esc(e.desc)+'</span><b style="color:var(--ok);font:700 13px \'IBM Plex Mono\',monospace">'+esc(e.currency)+' '+e.amount.toLocaleString()+'</b></div>').join('');
+  }
   h += '<details><summary>Full transcript</summary><div class="transcript">'+esc(s.transcript)+'</div></details>';
   h += '<button class="danger" onclick="deleteSession(\''+s.id+'\')">Delete session</button></div>';
   return h;
 }
 
-function renderDigest(){
-  let h = '<header><div class="brand">Digest</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
+function renderDashboard(){
+  let h = '<header><div class="brand">Dashboard</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
   h += '<button class="primary" style="width:100%" onclick="runBrief()" '+(briefBusy?'disabled':'')+'>'+(briefBusy?'Writing your brief\u2026':'\u2600 Morning Brief')+'</button>';
   if(briefBusy) h += '<div class="proc"><div class="spin"></div>THINKING\u2026</div>';
   if(brief) h += '<div class="brief">'+esc(brief)+'</div>';
-  const cats = {};
-  sessions.forEach(s=> (s.actions||[]).forEach((a,i)=>{
-    if(a.status==='open'||a.status==='waiting'){ const c=s.category||FALLBACK; (cats[c]=cats[c]||[]).push({s,i}); }
-  }));
-  const total = Object.values(cats).reduce((n,l)=>n+l.length,0);
-  h += '<div class="sect">'+total+' open task'+(total===1?'':'s')+'</div>';
-  if(!total) return h + '<div class="empty">All clear. Open tasks from your sessions will collect here.</div>';
-  Object.keys(cats).forEach(c=>{
-    h += '<div class="sect" style="color:var(--amber)">'+esc(c)+' \u00b7 '+cats[c].length+'</div>';
-    h += cats[c].map(({s,i})=>actionRow(s,i,true)).join('');
-  });
+
+  const rows = allOpenTasks();
+  h += '<div class="sect">'+rows.length+' open task'+(rows.length===1?'':'s')+' \u00b7 by due date</div>';
+  if(!rows.length) h += '<div class="empty">All clear. Open tasks from your sessions will collect here.</div>';
+  else h += rows.map(({s,a,i})=>actionRow(s,i,true)).join('');
+
+  const exp = monthExpenses();
+  const total = exp.reduce((n,{e})=>n + (e.currency==='INR' ? e.amount : e.amount), 0);
+  const byCur = {};
+  exp.forEach(({e})=>{ byCur[e.currency] = (byCur[e.currency]||0) + e.amount; });
+  h += '<div class="sect">This month\u2019s expenses</div>';
+  if(!exp.length) h += '<div class="empty">Nothing logged. Mention an amount while recording \u2014 "spent 4000 on lab fees" \u2014 and it lands here.</div>';
+  else{
+    h += '<div class="brief" style="background:linear-gradient(160deg,#1E2A22,#171F1B);border-color:#2A4536">'+
+      Object.keys(byCur).map(c=>c+' '+byCur[c].toLocaleString()).join('  \u00b7  ')+' total</div>';
+    h += exp.slice(0,12).map(({s,e})=>
+      '<div class="frow"><span>'+esc(e.desc)+'<span class="src" style="display:block">'+esc(s.title)+' \u00b7 '+fmtDate(s.date)+'</span></span>'+
+      '<b style="color:var(--ok);font:700 13px \'IBM Plex Mono\',monospace">'+esc(e.currency)+' '+e.amount.toLocaleString()+'</b></div>'
+    ).join('');
+  }
+
+  h += '<div class="sect">Folders</div>';
+  h += '<div class="cats">'+folders.map(c=>{
+    const n = openCount(c);
+    return '<button class="chip" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';view=\'sessions\';render()">'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
+  }).join('')+'</div>';
   return h;
 }
 
@@ -701,6 +782,14 @@ function renderSettings(){
   h += '<button class="retry" onclick="exportData()">Export backup (.json)</button> ';
   h += '<label class="retry" style="display:inline-block;background:var(--raised2);color:var(--text)">Import backup<input type="file" accept="application/json" style="display:none" onchange="importData(event)"></label>';
   h += '<div class="note">Everything lives in this browser\u2019s storage. Export regularly \u2014 clearing browser data or losing this device loses your notes.</div>';
+  const archived = [];
+  sessions.forEach(s=> (s.actions||[]).forEach((a,i)=>{ if(a.status==='killed') archived.push({s,a,i}); }));
+  h += '<div class="sect">Archived tasks '+(archived.length?'\u00b7 '+archived.length:'')+'</div>';
+  if(!archived.length) h += '<div class="note">Dismissed tasks sit here for '+ARCHIVE_DAYS+' days before being purged for good.</div>';
+  else h += archived.map(({s,a,i})=>
+    '<div class="frow"><span>'+esc(a.text)+'<span class="src" style="display:block">'+esc(s.title)+' \u00b7 '+daysLeft(a)+'d left</span></span>'+
+    '<button onclick="restoreAction(\''+s.id+'\','+i+')">Restore</button></div>'
+  ).join('');
   h += '<div class="sect">Anthropic API key <span style="color:var(--faint);font-weight:400">\u2014 summaries & classification</span></div>';
   h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="setKey()">'+(getKey()?'Replace key \u2713':'Set API key')+'</button>';
   h += '<div class="sect">OpenAI API key <span style="color:var(--faint);font-weight:400">\u2014 Whisper transcription (optional, better accuracy)</span></div>';
