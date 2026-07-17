@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Recall — one-tap second brain</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0E1420">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -142,6 +148,134 @@ let askQ = '', askAnswer = '', askBusy = false;
 let brief = '', briefBusy = false;
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+/* ================= sync (Supabase) ================= */
+// Anon key + project URL are public by design (RLS scoped to auth.uid() protects the data) —
+// same posture as the Anthropic/OpenAI keys, which are per-device and never touch the repo.
+const SUPABASE_URL = 'https://mnqvsjhdrvboyjutukvo.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ucXZzamhkcnZib3lqdXR1a3ZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyNjU2NjYsImV4cCI6MjA5OTg0MTY2Nn0.74MLlHBt9khQ5GbicZXEZjvF6u8dItmN6uxAvY6i-VU';
+let sb = null, sbUser = null;
+let authEmail = '', authBusy = false, authMsg = '';
+let syncBusy = false, syncMsg = '', showMigratePrompt = false;
+
+async function getSb(){
+  if(sb) return sb;
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
+  return sb;
+}
+
+async function initAuth(){
+  try{
+    const client = await getSb();
+    const { data:{ session } } = await client.auth.getSession();
+    sbUser = session ? session.user : null;
+    client.auth.onAuthStateChange((_event, session)=>{
+      const was = sbUser; sbUser = session ? session.user : null;
+      if(sbUser && !was) onSignedIn(); else render();
+    });
+    if(sbUser) onSignedIn(); else render();
+  }catch(e){ console.error('auth init failed', e); }
+}
+
+async function sendMagicLink(){
+  const el = document.getElementById('authemail');
+  const email = el ? el.value.trim() : authEmail;
+  if(!email){ authMsg = 'Enter your email first.'; render(); return; }
+  authEmail = email; authBusy = true; authMsg = ''; render();
+  try{
+    const client = await getSb();
+    const { error } = await client.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.origin + window.location.pathname } });
+    authMsg = error ? ('Failed: ' + error.message) : 'Check your email for a sign-in link.';
+  }catch(e){ authMsg = 'Failed: ' + e.message; }
+  authBusy = false; render();
+}
+async function signOut(){
+  try{ const client = await getSb(); await client.auth.signOut(); }catch(e){}
+  sbUser = null; syncMsg = ''; render();
+}
+
+async function onSignedIn(){
+  syncBusy = true; syncMsg = 'Checking your account…'; render();
+  try{
+    const client = await getSb();
+    const { count } = await client.from('sessions').select('id', { count:'exact', head:true });
+    if(!count && sessions.length){ showMigratePrompt = true; }
+    else{ await pullFromCloud(); syncMsg = 'Synced.'; }
+  }catch(e){ syncMsg = 'Sync failed: ' + e.message; }
+  syncBusy = false; render();
+}
+
+async function pullFromCloud(){
+  const client = await getSb();
+  const [{ data:cFolders }, { data:cSessions }, { data:cActions }, { data:cExpenses }] = await Promise.all([
+    client.from('folders').select('*').order('position'),
+    client.from('sessions').select('*').order('date', { ascending:false }),
+    client.from('actions').select('*').order('idx'),
+    client.from('expenses').select('*').order('idx'),
+  ]);
+  if(cFolders && cFolders.length) folders = cFolders.map(f=>f.name);
+  if(cSessions){
+    const actionsBySession = {};
+    (cActions||[]).forEach(a=>{ (actionsBySession[a.session_id] = actionsBySession[a.session_id]||[])[a.idx] = { text:a.text, due:a.due, status:a.status, archivedAt: a.archived_at ? new Date(a.archived_at).getTime() : null }; });
+    const expensesBySession = {};
+    (cExpenses||[]).forEach(e=>{ (expensesBySession[e.session_id] = expensesBySession[e.session_id]||[])[e.idx] = { desc:e.desc, amount:Number(e.amount), currency:e.currency }; });
+    sessions = cSessions.map(s=>({
+      id:s.id, date:s.date, duration:s.duration, transcript:s.transcript,
+      title:s.title, summary:s.summary, kind:s.kind, category:s.category, processed:s.processed,
+      actions:(actionsBySession[s.id]||[]).filter(Boolean),
+      expenses:(expensesBySession[s.id]||[]).filter(Boolean),
+    }));
+  }
+  loadFix(); saveAll();
+}
+
+async function migrateToCloud(){
+  showMigratePrompt = false; syncBusy = true; syncMsg = 'Uploading your local sessions…'; render();
+  try{
+    for(const s of sessions){ await pushSession(s); }
+    await pushFolders();
+    syncMsg = 'Uploaded ' + sessions.length + ' session(s).';
+  }catch(e){ syncMsg = 'Upload failed: ' + e.message; }
+  syncBusy = false; render();
+}
+function skipMigration(){ showMigratePrompt = false; syncMsg = 'Skipped — new recordings will still sync.'; render(); }
+
+async function pushSession(s){
+  if(!sbUser) return;
+  const client = await getSb();
+  await client.from('sessions').upsert({
+    id:s.id, user_id:sbUser.id, date:s.date, duration:s.duration||0,
+    transcript:s.transcript||'', title:s.title||'', summary:s.summary||'',
+    kind:s.kind||'note', category:s.category||FALLBACK, processed:!!s.processed,
+    updated_at:new Date().toISOString(),
+  });
+  await client.from('actions').delete().eq('session_id', s.id);
+  const actionRows = (s.actions||[]).map((a,idx)=>({ session_id:s.id, user_id:sbUser.id, idx, text:a.text, due:a.due||null, status:a.status||'open', archived_at:a.archivedAt ? new Date(a.archivedAt).toISOString() : null }));
+  if(actionRows.length) await client.from('actions').insert(actionRows);
+  await client.from('expenses').delete().eq('session_id', s.id);
+  const expenseRows = (s.expenses||[]).map((e,idx)=>({ session_id:s.id, user_id:sbUser.id, idx, desc:e.desc, amount:e.amount, currency:e.currency||'INR' }));
+  if(expenseRows.length) await client.from('expenses').insert(expenseRows);
+}
+async function pushDeleteSession(id){
+  if(!sbUser) return;
+  const client = await getSb();
+  await client.from('sessions').delete().eq('id', id);
+}
+async function pushFolders(){
+  if(!sbUser) return;
+  const client = await getSb();
+  await client.from('folders').delete().eq('user_id', sbUser.id);
+  const rows = folders.map((name,position)=>({ user_id:sbUser.id, name, position }));
+  if(rows.length) await client.from('folders').insert(rows);
+}
+async function pushAllSessions(){
+  for(const s of sessions){ await pushSession(s); }
+  await pushFolders();
+}
+function trySync(fn){ if(!sbUser) return; fn().catch(e=>{ console.error('sync failed', e); }); }
+
+window.addEventListener('online', ()=>{ if(sbUser) trySync(pushAllSessions); });
 
 window.onerror = function(msg, src, line){
   try{
@@ -380,6 +514,7 @@ async function processTranscript(transcript, dur){
   if(r) applyResult(session, r);
   sessions.unshift(session);
   saveAll();
+  trySync(()=>pushSession(session));
   recState = 'idle'; currentId = session.id; view = 'detail'; render();
 }
 
@@ -397,7 +532,7 @@ async function retryProcess(id){
   const s = sessions.find(x=>x.id===id); if(!s) return;
   recState = 'processing'; render();
   const r = await summarize(s.transcript);
-  if(r){ applyResult(s, r); saveAll(); }
+  if(r){ applyResult(s, r); saveAll(); trySync(()=>pushSession(s)); }
   else if(!lastError){ lastError = 'Processing failed \u2014 check your connection and retry.'; }
   recState = 'idle'; render();
 }
@@ -407,24 +542,24 @@ function cycleStatus(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
   const a = s.actions[idx]; if(!a) return;
   a.status = a.status==='open' ? 'waiting' : a.status==='waiting' ? 'done' : 'open';
-  saveAll(); render();
+  saveAll(); trySync(()=>pushSession(s)); render();
 }
 function killAction(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
   s.actions[idx].status = 'killed';
   s.actions[idx].archivedAt = Date.now();
-  saveAll(); render();
+  saveAll(); trySync(()=>pushSession(s)); render();
 }
 function restoreAction(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
   s.actions[idx].status = 'open';
   s.actions[idx].archivedAt = null;
-  saveAll(); render();
+  saveAll(); trySync(()=>pushSession(s)); render();
 }
 function daysLeft(a){ return Math.max(0, ARCHIVE_DAYS - Math.floor((Date.now()-(a.archivedAt||Date.now()))/86400000)); }
 function moveFolder(sid, val){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
-  s.category = val; saveAll(); render();
+  s.category = val; saveAll(); trySync(()=>pushSession(s)); render();
 }
 function assignWA(sid, idx){
   const s = sessions.find(x=>x.id===sid); if(!s) return;
@@ -450,7 +585,7 @@ function ageDays(s){ return Math.floor((Date.now() - new Date(s.date).getTime())
 function deleteSession(id){
   if(!confirm('Delete this session and its transcript?')) return;
   sessions = sessions.filter(x=>x.id!==id);
-  saveAll(); view='home'; render();
+  saveAll(); trySync(()=>pushDeleteSession(id)); view='home'; render();
 }
 
 /* ================= folders ================= */
@@ -459,7 +594,7 @@ function addFolder(){
   const name = el ? el.value.trim() : '';
   if(!name) return;
   if(folders.some(f=>f.toLowerCase()===name.toLowerCase())){ lastError='That folder already exists.'; render(); return; }
-  folders.push(name); saveAll(); render();
+  folders.push(name); saveAll(); trySync(pushFolders); render();
 }
 function renameFolder(old){
   const name = prompt('Rename "'+old+'" to:', old);
@@ -469,7 +604,7 @@ function renameFolder(old){
   folders = folders.map(f=>f===old?n:f);
   sessions.forEach(s=>{ if(s.category===old) s.category=n; });
   if(activeCat===old) activeCat=n;
-  saveAll(); render();
+  saveAll(); trySync(pushAllSessions); render();
 }
 function deleteFolder(name){
   if(name===FALLBACK){ lastError='"'+FALLBACK+'" is the fallback folder and can\u2019t be deleted.'; render(); return; }
@@ -478,7 +613,7 @@ function deleteFolder(name){
   folders = folders.filter(f=>f!==name);
   sessions.forEach(s=>{ if(s.category===name) s.category=FALLBACK; });
   if(activeCat===name) activeCat='All';
-  saveAll(); render();
+  saveAll(); trySync(pushAllSessions); render();
 }
 
 /* ================= backup ================= */
@@ -502,7 +637,7 @@ function importData(ev){
       d.sessions.forEach(s=>{ if(!have.has(s.id)){ sessions.push(s); added++; } });
       sessions.sort((a,b)=> new Date(b.date)-new Date(a.date));
       (d.folders||[]).forEach(f=>{ if(!folders.some(x=>x.toLowerCase()===f.toLowerCase())) folders.push(f); });
-      loadFix(); saveAll();
+      loadFix(); saveAll(); trySync(pushAllSessions);
       lastError=''; alert('Imported '+added+' new session(s).'); render();
     }catch(e){ lastError='That file doesn\u2019t look like a Recall backup.'; render(); }
   };
@@ -638,7 +773,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v14.1</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v15</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -775,10 +910,28 @@ function renderAsk(){
   return h;
 }
 
+function renderAccount(){
+  let h = '<div class="sect">Account — sync across devices</div>';
+  if(showMigratePrompt){
+    h += '<div class="err" style="background:#132A1E;border-color:#254536;color:#9AE6B4">You have '+sessions.length+' session'+(sessions.length===1?'':'s')+' on this device that aren’t in your account yet.'+
+      '<div style="margin-top:8px;display:flex;gap:8px"><button class="primary" onclick="migrateToCloud()">Upload to account</button><button class="retry" style="background:var(--raised2);color:var(--text)" onclick="skipMigration()">Not now</button></div></div>';
+  } else if(sbUser){
+    h += '<div class="note">Signed in as '+esc(sbUser.email)+'. '+(syncBusy?'Syncing…':esc(syncMsg||'Sessions sync automatically.'))+'</div>';
+    h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="signOut()">Sign out</button>';
+  } else {
+    h += '<div class="note">Sign in to sync sessions, tasks, and expenses across your phone and laptop. Recording still works without this — everything stays on this device until you sign in.</div>';
+    h += '<div class="askbox"><input id="authemail" type="email" placeholder="you@email.com" value="'+esc(authEmail)+'" oninput="authEmail=this.value" onkeydown="if(event.key===\'Enter\')sendMagicLink()">'+
+      '<button class="primary" onclick="sendMagicLink()" '+(authBusy?'disabled':'')+'>'+(authBusy?'…':'Send link')+'</button></div>';
+    if(authMsg) h += '<div class="note">'+esc(authMsg)+'</div>';
+  }
+  return h;
+}
+
 function renderSettings(){
   let h = '<button class="back" onclick="go(\'home\')">\u2039 Back</button>';
   h += '<div class="dtitle">Settings</div>';
   if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
+  h += renderAccount();
   h += '<div class="sect">Folders</div>';
   h += folders.map(f=>'<div class="frow"><span>'+esc(f)+'</span>'+
       '<button onclick="renameFolder(\''+f.replace(/'/g,"\\'")+'\')">Rename</button>'+
@@ -809,6 +962,10 @@ function renderSettings(){
 /* ================= init ================= */
 loadAll();
 render();
+initAuth();
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+}
 </script>
 </body>
 </html>

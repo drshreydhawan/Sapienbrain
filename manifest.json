@@ -1,0 +1,16 @@
+{
+  "name": "Recall — one-tap second brain",
+  "short_name": "Recall",
+  "description": "One-tap voice capture that turns rambling notes into structured, searchable records.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0E1420",
+  "theme_color": "#0E1420",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
