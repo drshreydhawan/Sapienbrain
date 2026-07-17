@@ -11,10 +11,11 @@
     --ink:#0E1420; --raised:#18202E; --raised2:#1F2937; --line:#2A3547;
     --text:#E8EDF5; --dim:#8B97A8; --faint:#5A6678;
     --rec:#FF4D45; --amber:#FFB020; --blue:#5B8DEF; --ok:#3DCB8F;
+    --tab1:#4FBDBA; --tab2:#9B8AFB; --tab3:#F4A9A8; --tab4:#E8C468; --tab5:#8FBF8A; --tab6:#7C8CA6;
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
-  body{background:var(--ink);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.5;overflow-x:hidden}
+  body{background:var(--ink) radial-gradient(circle, rgba(232,237,245,.05) 1px, transparent 1px) 0 0/22px 22px;color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.5;overflow-x:hidden}
   .app{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;padding:0 18px 96px}
 
   header{display:flex;align-items:center;justify-content:space-between;padding:20px 2px 6px;gap:8px}
@@ -52,6 +53,7 @@
   .chip{flex:none;background:var(--raised);border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:7px 13px;font:600 12.5px 'Inter',sans-serif;cursor:pointer}
   .chip.on{background:var(--raised2);color:var(--text);border-color:var(--faint)}
   .chip b{color:var(--amber);font-weight:700;margin-left:3px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
 
   .card{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer;transition:background .15s}
   .card:active{background:var(--raised2)}
@@ -438,6 +440,11 @@ function gcalUrl(a, s){
   else { const t = new Date(Date.now()+86400000); d = t.toISOString().slice(0,10).replace(/-/g,''); }
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+encodeURIComponent(a.text)+'&dates='+d+'T090000/'+d+'T093000&details='+encodeURIComponent('From Recall: '+(s.title||''));
 }
+function folderColor(name){
+  const palette = ['var(--tab1)','var(--tab2)','var(--tab3)','var(--tab4)','var(--tab5)','var(--tab6)'];
+  const idx = folders.indexOf(name);
+  return palette[(idx<0?0:idx) % palette.length];
+}
 function kindLabel(k){ return k==='tasks'?'TASKS':k==='note'?'NOTE':k==='log'?'LOG':k==='mixed'?'MIXED':'NOTE'; }
 function ageDays(s){ return Math.floor((Date.now() - new Date(s.date).getTime())/86400000); }
 function deleteSession(id){
@@ -631,7 +638,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v14</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v14.1</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -666,7 +673,8 @@ function renderSessions(){
   let h = '<header><div class="brand">Sessions</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
   h += '<div class="cats">'+['All'].concat(folders).map(c=>{
     const n = openCount(c);
-    return '<button class="chip '+(activeCat===c?'on':'')+'" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';render()">'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
+    const dot = c==='All' ? '' : '<i class="dot" style="background:'+folderColor(c)+'"></i>';
+    return '<button class="chip '+(activeCat===c?'on':'')+'" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';render()">'+dot+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
   }).join('')+'</div>';
   h += '<div class="cats" style="margin-top:-4px">'+['All','tasks','note','log','mixed'].map(k=>{
     const label = k==='All'?'All types':kindLabel(k);
@@ -683,7 +691,7 @@ function renderListInner(){
   if(!hits.length) return '<div class="empty">'+(sessions.length ? 'No matches.' : 'Nothing captured yet. Tap record and start talking.')+'</div>';
   return hits.map(s=>{
     const open = (s.actions||[]).filter(a=>a.status==='open'||a.status==='waiting').length;
-    return '<div class="card" onclick="currentId=\''+s.id+'\';view=\'detail\';render()">'+
+    return '<div class="card" style="border-left:3px solid '+folderColor(s.category||FALLBACK)+'" onclick="currentId=\''+s.id+'\';view=\'detail\';render()">'+
       '<h3>'+esc(s.title)+'<span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></h3>'+
       '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+' \u00b7 '+esc(s.category||FALLBACK)+'</div>'+
       (s.summary?'<p>'+esc(s.summary)+'</p>':'')+
@@ -699,9 +707,9 @@ function renderDetail(){
   let h = '<button class="back" onclick="go(\'sessions\')">\u2039 Back</button>'+
     '<div class="dtitle">'+esc(s.title)+' <span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></div>'+
     '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+'</div>'+
-    '<select class="lang" style="margin-top:8px" onchange="moveFolder(\''+s.id+'\',this.value)">'+
+    '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><i class="dot" style="background:'+folderColor(s.category)+'"></i><select class="lang" onchange="moveFolder(\''+s.id+'\',this.value)">'+
       folders.map(f=>'<option value="'+esc(f)+'" '+(f===s.category?'selected':'')+'>'+esc(f)+'</option>').join('')+
-    '</select><div class="dbody">';
+    '</select></div><div class="dbody">';
   if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
   if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
   if(s.summary) h += '<p>'+esc(s.summary)+'</p>';
@@ -751,7 +759,7 @@ function renderDashboard(){
   h += '<div class="sect">Folders</div>';
   h += '<div class="cats">'+folders.map(c=>{
     const n = openCount(c);
-    return '<button class="chip" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';view=\'sessions\';render()">'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
+    return '<button class="chip" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';view=\'sessions\';render()"><i class="dot" style="background:'+folderColor(c)+'"></i>'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
   }).join('')+'</div>';
   return h;
 }
