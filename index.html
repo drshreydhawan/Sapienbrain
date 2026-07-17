@@ -363,6 +363,20 @@ function bootStatus(){
 }
 
 /* ================= recording ================= */
+// Screen Wake Lock — the phone auto-sleeping mid-recording kills SpeechRecognition
+// and freezes the tab. Hold a wake lock for the duration of a recording; the OS
+// auto-releases it whenever the tab is hidden, so re-acquire on return if still recording.
+let wakeLock = null;
+async function acquireWakeLock(){
+  try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function releaseWakeLock(){
+  try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && recState === 'recording') acquireWakeLock();
+});
+
 async function toggleRecord(){
   if(recState === 'recording'){ stopRecording(); return; }
   if(recState !== 'idle') return;
@@ -390,6 +404,7 @@ async function toggleRecord(){
   recState = 'recording'; startedAt = Date.now();
   timerIv = setInterval(()=>{ elapsed = Math.floor((Date.now()-startedAt)/1000); const t=document.getElementById('timer'); if(t) t.textContent = fmtDur(elapsed); }, 1000);
   render();
+  acquireWakeLock();
 
   if(!SR){ return; }
   recognition = new SR();
@@ -428,6 +443,7 @@ async function toggleRecord(){
 
 async function stopRecording(){
   keepRecording = false;
+  releaseWakeLock();
   if(recognition){ try{ recognition.stop(); }catch(e){} recognition = null; }
   clearInterval(timerIv);
   const dur = elapsed;
@@ -815,7 +831,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v16</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v16.1</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -834,7 +850,7 @@ function renderHome(){
     '<div class="timer" id="timer">'+fmtDur(elapsed)+'</div>'+
     (recState==='recording'?'<div class="eq"><i></i><i></i><i></i><i></i><i></i></div>':'')+
     '<div class="live" id="live"></div>'+
-    (recState==='idle' ? '<div class="hint">One tap. Keep the screen on while recording.</div><div class="hint" style="opacity:.75">'+bootStatus()+'</div><button class="typelink" onclick="showTyped=!showTyped;render()">Type it instead</button>' : '')+
+    (recState==='idle' ? '<div class="hint">'+('wakeLock' in navigator ? 'One tap. The screen stays awake while recording.' : 'One tap. Keep the screen on while recording.')+'</div><div class="hint" style="opacity:.75">'+bootStatus()+'</div><button class="typelink" onclick="showTyped=!showTyped;render()">Type it instead</button>' : '')+
   '</div>';
 
   if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
