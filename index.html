@@ -181,6 +181,42 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let sb = null, sbUser = null;
 let authEmail = '', authBusy = false, authMsg = '';
 let syncBusy = false, syncMsg = '', showMigratePrompt = false;
+const VAPID_PUBLIC_KEY = 'BL4VreIjeNTcxrQNUVV7-Rh_T6gg5N0MQLLhChhxuKvptUMlhkJfl03RLSJhK2Wom9hW0fIh0o34jzXNtkVP84U';
+let remindersOn = false;
+
+function urlB64ToU8(s){
+  const pad = '='.repeat((4 - s.length % 4) % 4);
+  const b64 = (s + pad).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(b64);
+  return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
+async function checkReminders(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const reg = await navigator.serviceWorker.ready;
+    remindersOn = !!(await reg.pushManager.getSubscription());
+    if(view==='settings') render();
+  }catch(e){}
+}
+async function toggleReminders(){
+  syncMsg = '';
+  try{
+    if(!('PushManager' in window)) throw new Error('this browser doesn’t support notifications' + (/iPhone|iPad/.test(navigator.userAgent) ? ' — on iPhone, add Recall to your Home Screen first, then enable from there' : ''));
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    const client = await getSb();
+    if(existing){
+      await client.from('push_subscriptions').delete().eq('endpoint', existing.endpoint);
+      await existing.unsubscribe();
+      remindersOn = false; syncMsg = 'Reminders off.'; render(); return;
+    }
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){ syncMsg = 'Notifications are blocked for this site — allow them in your browser settings and try again.'; render(); return; }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: urlB64ToU8(VAPID_PUBLIC_KEY) });
+    await client.from('push_subscriptions').upsert({ user_id: sbUser.id, endpoint: sub.endpoint, subscription: sub.toJSON() }, { onConflict:'endpoint' });
+    remindersOn = true; syncMsg = 'Reminders on — due tasks ping this device at 8am.'; render();
+  }catch(e){ syncMsg = 'Could not enable reminders: ' + e.message; render(); }
+}
 
 async function getSb(){
   if(sb) return sb;
@@ -840,7 +876,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v16.2</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v17</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -1004,7 +1040,9 @@ function renderAccount(){
       '<div style="margin-top:8px;display:flex;gap:8px"><button class="primary" onclick="migrateToCloud()">Upload to account</button><button class="retry" style="background:var(--raised2);color:var(--text)" onclick="skipMigration()">Not now</button></div></div>';
   } else if(sbUser){
     h += '<div class="note">Signed in as '+esc(sbUser.email)+'. '+(syncBusy?'Syncing…':esc(syncMsg||'Sessions sync automatically.'))+'</div>';
-    h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="signOut()">Sign out</button>';
+    h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="signOut()">Sign out</button> ';
+    h += '<button class="retry" style="background:'+(remindersOn?'rgba(61,203,143,.12)':'var(--raised2)')+';color:'+(remindersOn?'var(--ok)':'var(--text)')+'" onclick="toggleReminders()">'+(remindersOn?'Reminders on ✓':'Enable due-task reminders')+'</button>';
+    h += '<div class="note">Reminders ping this device at 8am with tasks due today or overdue. Enable on each device you want pinged. On iPhone, add Recall to the Home Screen first.</div>';
   } else {
     h += '<div class="note">Sign in to sync sessions, tasks, and expenses across your phone and laptop. Recording still works without this — everything stays on this device until you sign in.</div>';
     h += '<div class="askbox"><input id="authemail" type="email" placeholder="you@email.com" value="'+esc(authEmail)+'" oninput="authEmail=this.value" onkeydown="if(event.key===\'Enter\')sendMagicLink()">'+
@@ -1051,7 +1089,7 @@ loadAll();
 render();
 initAuth();
 if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); });
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/sw.js').then(checkReminders).catch(()=>{}); });
 }
 </script>
 </body>

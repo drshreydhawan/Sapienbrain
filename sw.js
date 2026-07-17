@@ -1,7 +1,7 @@
 // Recall service worker — app-shell caching so the UI (and whatever's already
 // in localStorage) still loads with no signal. Recording/processing still
 // need network (Claude, Whisper, Supabase) — this only covers the shell.
-const CACHE = 'recall-shell-v1';
+const CACHE = 'recall-shell-v2';
 const SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -14,6 +14,28 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
   );
   self.clients.claim();
+});
+
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) {}
+  e.waitUntil(self.registration.showNotification(d.title || 'Recall', {
+    body: d.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: 'recall-reminder',
+    data: { url: d.url || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      return clients.openWindow((e.notification.data && e.notification.data.url) || '/');
+    })
+  );
 });
 
 self.addEventListener('fetch', (e) => {
