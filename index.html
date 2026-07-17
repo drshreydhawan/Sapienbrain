@@ -130,6 +130,8 @@ let finalText = '', snapFinal = '', interimText = '';
 let recognition = null;
 let startedAt = 0, timerIv = null, elapsed = 0;
 let searchQ = '', activeCat = 'All', activeKind = 'All', lastError = '', keepRecording = false;
+let mediaRecorder = null, audioChunks = [], mediaStream = null;
+let useWhisper = true;
 let showTyped = false, typedDraft = '';
 let askQ = '', askAnswer = '', askBusy = false;
 let brief = '', briefBusy = false;
@@ -167,6 +169,12 @@ function saveAll(){
   }catch(e){ storageWarn = 'Could not save \u2014 storage may be full. Export a backup and delete old sessions.'; return false; }
 }
 function getKey(){ try{ return localStorage.getItem('anthropic-key') || ''; }catch(e){ return ''; } }
+function getOAKey(){ try{ return localStorage.getItem('openai-key') || ''; }catch(e){ return ''; } }
+function setOAKey(){
+  const k = prompt('Paste your OpenAI API key (starts with sk-). Used only for Whisper transcription, stored only on this device.');
+  if(k && k.trim()){ try{ localStorage.setItem('openai-key', k.trim()); }catch(e){} lastError=''; render(); return true; }
+  return false;
+}
 function setKey(){
   const k = prompt('Paste your Anthropic API key (starts with sk-ant-). It is stored only on this device.');
   if(k && k.trim()){ try{ localStorage.setItem('anthropic-key', k.trim()); }catch(e){} lastError=''; render(); return true; }
@@ -174,24 +182,42 @@ function setKey(){
 }
 function bootStatus(){
   const parts = [];
-  parts.push(SR ? 'engine \u2713' : 'engine \u2717 (no speech support)');
+  parts.push(getOAKey() ? 'whisper \u2713' : (SR ? 'live captions' : 'engine \u2717'));
   try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); parts.push('storage \u2713'); }catch(e){ parts.push('storage \u2717'); }
   parts.push(getKey() ? 'key \u2713' : 'key \u2717');
   return parts.join(' \u00b7 ');
 }
 
 /* ================= recording ================= */
-function toggleRecord(){
+async function toggleRecord(){
   if(recState === 'recording'){ stopRecording(); return; }
   if(recState !== 'idle') return;
   lastError = '';
-  if(!SR){ lastError = 'Live transcription needs Chrome (Android or desktop). You can still use "Type it instead" below.'; render(); return; }
+  useWhisper = !!getOAKey();
+  if(!SR && !useWhisper){ lastError = 'Live transcription needs Chrome (Android or desktop), or add an OpenAI key in Settings for Whisper transcription. You can still use "Type it instead" below.'; render(); return; }
 
   finalText = ''; snapFinal = ''; interimText = ''; elapsed = 0; keepRecording = true;
+  audioChunks = []; mediaRecorder = null;
+
+  if(useWhisper){
+    try{
+      mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm' : '';
+      mediaRecorder = new MediaRecorder(mediaStream, mime?{mimeType:mime}:undefined);
+      mediaRecorder.ondataavailable = e=>{ if(e.data && e.data.size>0) audioChunks.push(e.data); };
+      mediaRecorder.start();
+    }catch(e){
+      useWhisper = false;
+      if(!SR){ lastError = 'Microphone access denied, and no live-transcription fallback is available. Allow the mic and try again.'; render(); return; }
+      lastError = 'Whisper mic access failed \u2014 falling back to live transcription for this recording.';
+    }
+  }
+
   recState = 'recording'; startedAt = Date.now();
   timerIv = setInterval(()=>{ elapsed = Math.floor((Date.now()-startedAt)/1000); const t=document.getElementById('timer'); if(t) t.textContent = fmtDur(elapsed); }, 1000);
   render();
 
+  if(!SR){ return; }
   recognition = new SR();
   recognition.continuous = true;
   recognition.interimResults = true;
@@ -226,14 +252,47 @@ function toggleRecord(){
   try{ recognition.start(); }catch(e){ lastError='Could not start recognition: '+e.message; keepRecording=false; recognition=null; recState='idle'; clearInterval(timerIv); render(); }
 }
 
-function stopRecording(){
+async function stopRecording(){
   keepRecording = false;
   if(recognition){ try{ recognition.stop(); }catch(e){} recognition = null; }
   clearInterval(timerIv);
-  const transcript = (finalText + snapFinal + ' ' + interimText).replace(/\s+/g,' ').trim();
-  if(recState !== 'recording' && !transcript){ recState='idle'; render(); return; }
-  if(!transcript){ recState = 'idle'; if(!lastError) lastError = 'Nothing was transcribed \u2014 the mic didn\u2019t pick up speech.'; render(); return; }
-  processTranscript(transcript, elapsed);
+  const dur = elapsed;
+  const liveTranscript = (finalText + snapFinal + ' ' + interimText).replace(/\s+/g,' ').trim();
+
+  if(useWhisper && mediaRecorder){
+    recState = 'processing'; lastError='Transcribing with Whisper\u2026'; render();
+    await new Promise(resolve=>{ mediaRecorder.onstop = resolve; try{ mediaRecorder.stop(); }catch(e){ resolve(); } });
+    if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+    const blob = new Blob(audioChunks, {type: (audioChunks[0] && audioChunks[0].type) || 'audio/webm'});
+    let transcript = '';
+    try{ transcript = await whisperTranscribe(blob); }
+    catch(e){ lastError = 'Whisper transcription failed: ' + e.message + (liveTranscript?' \u2014 using live captions instead.':''); }
+    if(!transcript) transcript = liveTranscript;
+    if(!transcript){ recState='idle'; if(!lastError) lastError='Nothing was transcribed.'; render(); return; }
+    lastError=''; processTranscript(transcript, dur);
+    return;
+  }
+
+  if(recState !== 'recording' && !liveTranscript){ recState='idle'; render(); return; }
+  if(!liveTranscript){ recState = 'idle'; if(!lastError) lastError = 'Nothing was transcribed \u2014 the mic didn\u2019t pick up speech.'; render(); return; }
+  processTranscript(liveTranscript, dur);
+}
+
+async function whisperTranscribe(blob){
+  const key = getOAKey();
+  if(!key) throw new Error('no OpenAI key set');
+  const fd = new FormData();
+  fd.append('file', blob, 'audio.webm');
+  fd.append('model', 'whisper-1');
+  const lang = document.getElementById('lang');
+  if(lang && lang.value && lang.value.slice(0,2) !== 'en') fd.append('language', lang.value.slice(0,2));
+  const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method:'POST', headers:{ 'Authorization':'Bearer '+key }, body: fd
+  });
+  if(resp.status===401){ try{ localStorage.removeItem('openai-key'); }catch(e){} throw new Error('key rejected'); }
+  if(!resp.ok){ throw new Error('HTTP '+resp.status); }
+  const data = await resp.json();
+  return (data.text||'').trim();
 }
 
 function submitTyped(){
@@ -520,7 +579,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v12</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v13</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -642,8 +701,11 @@ function renderSettings(){
   h += '<button class="retry" onclick="exportData()">Export backup (.json)</button> ';
   h += '<label class="retry" style="display:inline-block;background:var(--raised2);color:var(--text)">Import backup<input type="file" accept="application/json" style="display:none" onchange="importData(event)"></label>';
   h += '<div class="note">Everything lives in this browser\u2019s storage. Export regularly \u2014 clearing browser data or losing this device loses your notes.</div>';
-  h += '<div class="sect">API key</div>';
+  h += '<div class="sect">Anthropic API key <span style="color:var(--faint);font-weight:400">\u2014 summaries & classification</span></div>';
   h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="setKey()">'+(getKey()?'Replace key \u2713':'Set API key')+'</button>';
+  h += '<div class="sect">OpenAI API key <span style="color:var(--faint);font-weight:400">\u2014 Whisper transcription (optional, better accuracy)</span></div>';
+  h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="setOAKey()">'+(getOAKey()?'Replace key \u2713':'Set OpenAI key')+'</button>';
+  h += '<div class="note">Without this, recording falls back to your browser\u2019s built-in speech recognition \u2014 faster but noticeably less accurate, especially with medical terms and Hindi-English mixing. With it set, every recording is transcribed by Whisper after you stop (2\u20134 second wait, no live captions during recording).</div>';
   return h;
 }
 
