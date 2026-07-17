@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Recall — one-tap second brain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E1420; --raised:#18202E; --raised2:#1F2937; --line:#2A3547;
+    --text:#E8EDF5; --dim:#8B97A8; --faint:#5A6678;
+    --rec:#FF4D45; --amber:#FFB020; --blue:#5B8DEF; --ok:#3DCB8F;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{background:var(--ink);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.5;overflow-x:hidden}
+  .app{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;padding:0 18px 96px}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:20px 2px 6px;gap:8px}
+  .brand{font-family:'Archivo',sans-serif;font-weight:700;font-size:19px;letter-spacing:-.02em}
+  .brand span{color:var(--rec)}
+  .hbtns{display:flex;gap:8px;align-items:center}
+  .lang{background:var(--raised);color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:500 12px 'IBM Plex Mono',monospace}
+  .gear{cursor:pointer}
+
+  .recbtn{display:block;width:min(320px,88%);margin:0 auto;padding:34px 0;border-radius:26px;border:none;cursor:pointer;
+    background:var(--rec);color:#fff;font-family:'Archivo',sans-serif;font-weight:700;font-size:24px;letter-spacing:.18em;
+    box-shadow:0 10px 30px rgba(255,77,69,.25);transition:transform .1s, background .2s}
+  .recbtn:active{transform:scale(.97)}
+  .recbtn:disabled{opacity:.5;cursor:default}
+  .recording .recbtn{background:#B3261E;box-shadow:0 10px 30px rgba(179,38,30,.35)}
+
+  .hero{display:flex;flex-direction:column;align-items:center;padding:26px 0 20px;width:100%}
+  .timer{margin-top:16px;font:500 26px 'IBM Plex Mono',monospace;color:var(--faint);letter-spacing:.04em}
+  .recording .timer{color:var(--text)}
+  .live{width:100%;margin-top:12px;min-height:40px;max-height:120px;overflow-y:auto;color:var(--dim);font-size:13.5px;text-align:center;padding:0 6px}
+  .live em{color:var(--faint);font-style:normal}
+  .hint{margin-top:6px;color:var(--faint);font-size:12.5px;text-align:center}
+  .typelink{margin-top:10px;background:none;border:none;color:var(--blue);font:600 13px 'Inter',sans-serif;cursor:pointer}
+  .typedbox{width:100%;background:var(--raised);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:12px;font:400 14px 'Inter',sans-serif;margin-bottom:10px;resize:vertical}
+
+  .proc{display:flex;align-items:center;gap:10px;justify-content:center;color:var(--amber);font:500 13px 'IBM Plex Mono',monospace;padding:8px 0}
+  .spin{width:14px;height:14px;border:2px solid var(--amber);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  .sect{font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase;margin:22px 0 10px}
+  .search{width:100%;background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:10px 13px;font-size:14px;margin-bottom:12px}
+  .search::placeholder{color:var(--faint)}
+  .cats{display:flex;gap:7px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}
+  .chip{flex:none;background:var(--raised);border:1px solid var(--line);color:var(--dim);border-radius:999px;padding:7px 13px;font:600 12.5px 'Inter',sans-serif;cursor:pointer}
+  .chip.on{background:var(--raised2);color:var(--text);border-color:var(--faint)}
+  .chip b{color:var(--amber);font-weight:700;margin-left:3px}
+
+  .card{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;cursor:pointer;transition:background .15s}
+  .card:active{background:var(--raised2)}
+  .card h3{font-family:'Archivo',sans-serif;font-weight:600;font-size:15.5px;letter-spacing:-.01em;margin-bottom:3px}
+  .meta{font:400 11.5px 'IBM Plex Mono',monospace;color:var(--faint)}
+  .card p{color:var(--dim);font-size:13.5px;margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .badge{display:inline-block;font:500 11px 'IBM Plex Mono',monospace;color:var(--amber);margin-top:8px}
+  .empty{color:var(--faint);font-size:13.5px;text-align:center;padding:26px 10px;border:1px dashed var(--line);border-radius:14px}
+
+  .back{background:none;border:none;color:var(--blue);font:600 14px 'Inter',sans-serif;cursor:pointer;padding:14px 0 4px;display:block}
+  .dtitle{font-family:'Archivo',sans-serif;font-weight:700;font-size:22px;letter-spacing:-.02em;line-height:1.25;margin-top:4px}
+  .kindtag{display:inline-block;vertical-align:middle;font:700 9.5px 'IBM Plex Mono',monospace;letter-spacing:.08em;border-radius:6px;padding:2px 7px;margin-left:7px}
+  .kindtag.tasks{background:rgba(255,176,32,.15);color:var(--amber)}
+  .kindtag.note{background:rgba(91,141,239,.15);color:var(--blue)}
+  .kindtag.log{background:rgba(139,151,168,.18);color:var(--dim)}
+  .kindtag.mixed{background:rgba(61,203,143,.15);color:var(--ok)}
+  .dbody p{color:var(--dim);margin:10px 0}
+
+  .ai{display:flex;gap:10px;align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px}
+  .ai .txt{flex:1;min-width:0}
+  .ai.done .txt .t{color:var(--faint);text-decoration:line-through}
+  .ai .src{display:block;font:400 11px 'IBM Plex Mono',monospace;color:var(--faint);margin-top:2px}
+  .due{color:var(--blue);font:500 11px 'IBM Plex Mono',monospace;margin-left:6px}
+  .age{color:var(--faint);font:500 11px 'IBM Plex Mono',monospace;margin-left:6px}
+  .age.old{color:var(--rec)}
+  .pill{flex:none;border-radius:999px;border:1px solid var(--amber);background:none;color:var(--amber);font:700 10px 'IBM Plex Mono',monospace;letter-spacing:.06em;padding:5px 9px;cursor:pointer;min-width:64px;text-align:center}
+  .pill.waiting{border-color:var(--blue);color:var(--blue)}
+  .pill.done{border-color:var(--ok);background:rgba(61,203,143,.12);color:var(--ok)}
+  .ico{flex:none;background:none;border:none;cursor:pointer;font-size:15px;opacity:.8;padding:3px 4px;text-decoration:none}
+  .kill{flex:none;background:none;border:none;color:var(--faint);cursor:pointer;font-size:15px;padding:3px 4px}
+
+  details{margin-top:16px}
+  summary{color:var(--blue);font-weight:600;font-size:14px;cursor:pointer;list-style:none}
+  .transcript{white-space:pre-wrap;color:var(--dim);font-size:13.5px;margin-top:10px;background:var(--raised);border-radius:12px;padding:13px;border:1px solid var(--line)}
+  .danger{margin-top:22px;background:none;border:1px solid var(--line);color:var(--faint);border-radius:10px;padding:9px 14px;font-size:13px;cursor:pointer}
+  .retry{background:var(--amber);color:#221500;border:none;border-radius:10px;padding:11px 16px;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px}
+  .primary{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:11px 16px;font-weight:600;font-size:14px;cursor:pointer}
+
+  .brief{background:linear-gradient(160deg,#1B2438,#171F2E);border:1px solid var(--line);border-radius:16px;padding:16px;margin:6px 0 14px;white-space:pre-wrap;color:var(--text);font-size:14px}
+  .askbox{display:flex;gap:8px;margin:12px 0}
+  .askbox input{flex:1;background:var(--raised);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 13px;font-size:14px}
+  .answer{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:14px;white-space:pre-wrap;font-size:14px;color:var(--text);margin-bottom:10px}
+
+  .frow{display:flex;gap:8px;align-items:center;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .frow span{flex:1;font-weight:600}
+  .frow button{background:none;border:none;color:var(--blue);font:600 13px 'Inter',sans-serif;cursor:pointer;padding:4px 6px}
+  .frow button.del{color:var(--rec)}
+  .err{background:#2A1518;border:1px solid #52252A;color:#FFB3AE;border-radius:12px;padding:12px 14px;font-size:13.5px;margin:12px 0}
+  .note{color:var(--faint);font-size:12.5px;margin:8px 0}
+
+  nav{position:fixed;bottom:0;left:0;right:0;background:rgba(14,20,32,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line)}
+  .nav-in{max-width:520px;margin:0 auto;display:flex}
+  nav button{flex:1;background:none;border:none;color:var(--faint);font:600 12px 'Archivo',sans-serif;letter-spacing:.1em;padding:15px 0 max(15px, env(safe-area-inset-bottom));cursor:pointer;text-transform:uppercase}
+  nav button.on{color:var(--text)}
+  @media (prefers-reduced-motion: reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<nav><div class="nav-in">
+  <button id="tab-rec" class="on" onclick="go('home')">Record</button>
+  <button id="tab-dig" onclick="go('digest')">Digest</button>
+  <button id="tab-ask" onclick="go('ask')">Ask</button>
+</div></nav>
+
+<script>
+/* ================= state ================= */
+let sessions = [];
+let folders = [];
+const DEFAULT_FOLDERS = ['Clinic','Bytesized','Spice Riot','Personal','Ideas'];
+const FALLBACK = 'Personal';
+let view = 'home';
+let currentId = null;
+let recState = 'idle';
+let finalText = '', snapFinal = '', interimText = '';
+let recognition = null;
+let startedAt = 0, timerIv = null, elapsed = 0;
+let searchQ = '', activeCat = 'All', activeKind = 'All', lastError = '', keepRecording = false;
+let showTyped = false, typedDraft = '';
+let askQ = '', askAnswer = '', askBusy = false;
+let brief = '', briefBusy = false;
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+window.onerror = function(msg, src, line){
+  try{
+    let b = document.getElementById('crashbar');
+    if(!b){ b = document.createElement('div'); b.id='crashbar';
+      b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99;background:#7A1E1E;color:#fff;font:12px monospace;padding:8px 12px;word-break:break-all';
+      document.body.appendChild(b); }
+    b.textContent = 'JS error: ' + msg + ' (line ' + line + ')';
+  }catch(e){}
+};
+
+/* ================= storage ================= */
+function loadAll(){
+  try{ const r = localStorage.getItem('brain-sessions'); sessions = r ? JSON.parse(r) : []; }catch(e){ sessions = []; }
+  try{ const f = localStorage.getItem('recall-folders'); folders = f ? JSON.parse(f) : DEFAULT_FOLDERS.slice(); }catch(e){ folders = DEFAULT_FOLDERS.slice(); }
+  if(!folders.includes(FALLBACK)) folders.push(FALLBACK);
+  // migrate: done boolean -> status
+  sessions.forEach(s=>{
+    if(!s.category) s.category = FALLBACK;
+    if(!s.kind) s.kind = (s.actions||[]).length ? 'tasks' : 'note';
+    (s.actions||[]).forEach(a=>{ if(!a.status) a.status = a.done ? 'done' : 'open'; });
+  });
+}
+let storageWarn = '';
+function saveAll(){
+  try{
+    localStorage.setItem('brain-sessions', JSON.stringify(sessions));
+    localStorage.setItem('recall-folders', JSON.stringify(folders));
+    storageWarn=''; return true;
+  }catch(e){ storageWarn = 'Could not save \u2014 storage may be full. Export a backup and delete old sessions.'; return false; }
+}
+function getKey(){ try{ return localStorage.getItem('anthropic-key') || ''; }catch(e){ return ''; } }
+function setKey(){
+  const k = prompt('Paste your Anthropic API key (starts with sk-ant-). It is stored only on this device.');
+  if(k && k.trim()){ try{ localStorage.setItem('anthropic-key', k.trim()); }catch(e){} lastError=''; render(); return true; }
+  return false;
+}
+function bootStatus(){
+  const parts = [];
+  parts.push(SR ? 'engine \u2713' : 'engine \u2717 (no speech support)');
+  try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); parts.push('storage \u2713'); }catch(e){ parts.push('storage \u2717'); }
+  parts.push(getKey() ? 'key \u2713' : 'key \u2717');
+  return parts.join(' \u00b7 ');
+}
+
+/* ================= recording ================= */
+function toggleRecord(){
+  if(recState === 'recording'){ stopRecording(); return; }
+  if(recState !== 'idle') return;
+  lastError = '';
+  if(!SR){ lastError = 'Live transcription needs Chrome (Android or desktop). You can still use "Type it instead" below.'; render(); return; }
+
+  finalText = ''; snapFinal = ''; interimText = ''; elapsed = 0; keepRecording = true;
+  recState = 'recording'; startedAt = Date.now();
+  timerIv = setInterval(()=>{ elapsed = Math.floor((Date.now()-startedAt)/1000); const t=document.getElementById('timer'); if(t) t.textContent = fmtDur(elapsed); }, 1000);
+  render();
+
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = document.getElementById('lang') ? document.getElementById('lang').value : 'en-IN';
+  recognition.onstart = ()=>{ lastError=''; render(); };
+  recognition.onresult = (ev)=>{
+    // Android Chrome re-delivers results and misreports resultIndex.
+    // Rebuild from the full result list every event instead of appending.
+    snapFinal = ''; interimText = '';
+    for(let i = 0; i < ev.results.length; i++){
+      const t = ev.results[i][0].transcript;
+      if(ev.results[i].isFinal) snapFinal += t.trim() + ' ';
+      else interimText += t;
+    }
+    updateLive();
+  };
+  recognition.onend = ()=>{
+    finalText += snapFinal; snapFinal = '';
+    if(keepRecording){ try{ recognition.start(); }catch(e){} }
+  };
+  recognition.onerror = (ev)=>{
+    if(ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+      keepRecording = false;
+      lastError = 'Speech recognition blocked (error: ' + ev.error + '). Allow microphone for this site in Chrome, or use "Type it instead".';
+      stopRecording();
+    } else if(ev.error === 'audio-capture'){
+      keepRecording = false; lastError = 'No microphone found (error: audio-capture).'; stopRecording();
+    } else if(ev.error === 'network'){
+      lastError = 'Speech service network error \u2014 recognition needs an internet connection.'; render();
+    }
+  };
+  try{ recognition.start(); }catch(e){ lastError='Could not start recognition: '+e.message; keepRecording=false; recognition=null; recState='idle'; clearInterval(timerIv); render(); }
+}
+
+function stopRecording(){
+  keepRecording = false;
+  if(recognition){ try{ recognition.stop(); }catch(e){} recognition = null; }
+  clearInterval(timerIv);
+  const transcript = (finalText + snapFinal + ' ' + interimText).replace(/\s+/g,' ').trim();
+  if(recState !== 'recording' && !transcript){ recState='idle'; render(); return; }
+  if(!transcript){ recState = 'idle'; if(!lastError) lastError = 'Nothing was transcribed \u2014 the mic didn\u2019t pick up speech.'; render(); return; }
+  processTranscript(transcript, elapsed);
+}
+
+function submitTyped(){
+  const el = document.getElementById('typed');
+  const text = el ? el.value.trim() : '';
+  if(!text){ lastError = 'Type or paste something first.'; render(); return; }
+  typedDraft = ''; showTyped = false; lastError = '';
+  processTranscript(text, 0);
+}
+
+/* ================= claude ================= */
+async function callClaude(userContent, maxTokens){
+  let key = getKey();
+  if(!key){ if(!setKey()) return null; key = getKey(); }
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key': key,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens: maxTokens||1000, messages:[{role:'user', content:userContent}] })
+  });
+  if(resp.status === 401 || resp.status === 403){
+    try{ localStorage.removeItem('anthropic-key'); }catch(e){}
+    lastError = 'API key was rejected \u2014 you\u2019ll be asked for it again on the next request.';
+    return null;
+  }
+  const data = await resp.json();
+  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+}
+
+function summarizePrompt(transcript){
+  return `You are the processing engine of a personal "second brain" voice recorder. The transcript below was captured by live speech recognition, so expect missing punctuation and misheard words; infer intent charitably. It may contain English, Hindi, or a mix.
+
+First decide what KIND of capture this is \u2014 don't force every recording into the same shape:
+- "tasks" \u2014 mostly action items and to-dos ("call the lab", "need to get tyres checked")
+- "note" \u2014 an observation, idea, reflection, or piece of information worth keeping, with no real action attached (an idea for a product, a thought about a patient case, something to remember)
+- "log" \u2014 a record of something that happened or was decided, for reference later (what was discussed in a meeting, a decision made, an event)
+- "mixed" \u2014 genuinely has both notable content AND real action items
+
+Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape:
+{"title": "short 3-7 word title", "kind": "tasks | note | log | mixed", "summary": "2-5 sentence summary \u2014 for note/log kinds this is the main content, so make it genuinely useful to re-read later, not just a gist", "category": "one folder name", "action_items": [{"text": "specific task phrased as an instruction", "due": "YYYY-MM-DD or null"}, ...]}
+
+For "category" pick exactly one of: ${folders.join(' | ')}.
+Guide for the standard folders (ignore any that no longer exist): Clinic = dental clinic operations, patients, staff, labs, equipment. Bytesized = OSCE Coach, dental education, software products. Spice Riot = the food brand. Personal = family, errands, health, travel. Ideas = new product or business concepts. Custom folders should be matched by name.
+For "due": set a date only if spoken or clearly implied ("by Friday", "tomorrow"); today is ${new Date().toISOString().slice(0,10)}. Otherwise null.
+action_items should be EMPTY for "note" and "log" kind sessions unless something genuinely actionable slipped in \u2014 do not invent tasks just to fill the field. Never pad a pure thought or reflection with a manufactured to-do.
+
+TRANSCRIPT:
+${transcript}`;
+}
+
+async function summarize(transcript){
+  try{
+    const text = await callClaude(summarizePrompt(transcript), 1000);
+    if(!text) return null;
+    return JSON.parse(text.replace(/```json|```/g,'').trim());
+  }catch(e){ console.error('summarize failed', e); return null; }
+}
+
+async function processTranscript(transcript, dur){
+  recState = 'processing'; render();
+  const session = { id:'s_'+Date.now(), date:new Date().toISOString(), duration:dur, transcript,
+    title:'Untitled session', summary:'', category:FALLBACK, actions:[], processed:false };
+  const r = await summarize(transcript);
+  if(r) applyResult(session, r);
+  sessions.unshift(session);
+  saveAll();
+  recState = 'idle'; currentId = session.id; view = 'detail'; render();
+}
+
+function applyResult(s, r){
+  s.title = r.title || s.title;
+  s.summary = r.summary || '';
+  s.kind = ['tasks','note','log','mixed'].includes(r.kind) ? r.kind : (((r.action_items||[]).length) ? 'tasks' : 'note');
+  s.category = folders.includes(r.category) ? r.category : FALLBACK;
+  s.actions = (r.action_items||[]).map(t=>({ text: typeof t==='string' ? t : (t.text||''), due:(t&&t.due)||null, status:'open' })).filter(a=>a.text);
+  s.processed = true;
+}
+
+async function retryProcess(id){
+  const s = sessions.find(x=>x.id===id); if(!s) return;
+  recState = 'processing'; render();
+  const r = await summarize(s.transcript);
+  if(r){ applyResult(s, r); saveAll(); }
+  else if(!lastError){ lastError = 'Processing failed \u2014 check your connection and retry.'; }
+  recState = 'idle'; render();
+}
+
+/* ================= tasks ================= */
+function cycleStatus(sid, idx){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  const a = s.actions[idx]; if(!a) return;
+  a.status = a.status==='open' ? 'waiting' : a.status==='waiting' ? 'done' : 'open';
+  saveAll(); render();
+}
+function killAction(sid, idx){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  s.actions[idx].status = 'killed';
+  saveAll(); render();
+}
+function assignWA(sid, idx){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  const a = s.actions[idx]; if(!a) return;
+  if(a.status === 'open'){ a.status = 'waiting'; saveAll(); }
+  const msg = 'Task: ' + a.text + (a.due ? ' (due ' + a.due + ')' : '') + '\n\u2014 via Recall, from "' + s.title + '"';
+  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  render();
+}
+function gcalUrl(a, s){
+  let d;
+  if(a.due){ d = a.due.replace(/-/g,''); }
+  else { const t = new Date(Date.now()+86400000); d = t.toISOString().slice(0,10).replace(/-/g,''); }
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text='+encodeURIComponent(a.text)+'&dates='+d+'T090000/'+d+'T093000&details='+encodeURIComponent('From Recall: '+(s.title||''));
+}
+function kindLabel(k){ return k==='tasks'?'TASKS':k==='note'?'NOTE':k==='log'?'LOG':k==='mixed'?'MIXED':'NOTE'; }
+function ageDays(s){ return Math.floor((Date.now() - new Date(s.date).getTime())/86400000); }
+function deleteSession(id){
+  if(!confirm('Delete this session and its transcript?')) return;
+  sessions = sessions.filter(x=>x.id!==id);
+  saveAll(); view='home'; render();
+}
+
+/* ================= folders ================= */
+function addFolder(){
+  const el = document.getElementById('newfolder');
+  const name = el ? el.value.trim() : '';
+  if(!name) return;
+  if(folders.some(f=>f.toLowerCase()===name.toLowerCase())){ lastError='That folder already exists.'; render(); return; }
+  folders.push(name); saveAll(); render();
+}
+function renameFolder(old){
+  const name = prompt('Rename "'+old+'" to:', old);
+  if(!name || !name.trim() || name.trim()===old) return;
+  const n = name.trim();
+  if(folders.some(f=>f.toLowerCase()===n.toLowerCase())){ lastError='A folder with that name already exists.'; render(); return; }
+  folders = folders.map(f=>f===old?n:f);
+  sessions.forEach(s=>{ if(s.category===old) s.category=n; });
+  if(activeCat===old) activeCat=n;
+  saveAll(); render();
+}
+function deleteFolder(name){
+  if(name===FALLBACK){ lastError='"'+FALLBACK+'" is the fallback folder and can\u2019t be deleted.'; render(); return; }
+  const n = sessions.filter(s=>s.category===name).length;
+  if(!confirm('Delete folder "'+name+'"?'+(n?' '+n+' session(s) will move to '+FALLBACK+'.':''))) return;
+  folders = folders.filter(f=>f!==name);
+  sessions.forEach(s=>{ if(s.category===name) s.category=FALLBACK; });
+  if(activeCat===name) activeCat='All';
+  saveAll(); render();
+}
+
+/* ================= backup ================= */
+function exportData(){
+  const blob = new Blob([JSON.stringify({folders, sessions}, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'recall-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+function importData(ev){
+  const file = ev.target.files && ev.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const d = JSON.parse(reader.result);
+      if(!Array.isArray(d.sessions)) throw new Error('bad file');
+      const have = new Set(sessions.map(s=>s.id));
+      let added = 0;
+      d.sessions.forEach(s=>{ if(!have.has(s.id)){ sessions.push(s); added++; } });
+      sessions.sort((a,b)=> new Date(b.date)-new Date(a.date));
+      (d.folders||[]).forEach(f=>{ if(!folders.some(x=>x.toLowerCase()===f.toLowerCase())) folders.push(f); });
+      loadFix(); saveAll();
+      lastError=''; alert('Imported '+added+' new session(s).'); render();
+    }catch(e){ lastError='That file doesn\u2019t look like a Recall backup.'; render(); }
+  };
+  reader.readAsText(file);
+}
+function loadFix(){ sessions.forEach(s=>{ if(!s.category) s.category=FALLBACK; (s.actions||[]).forEach(a=>{ if(!a.status) a.status = a.done?'done':'open'; }); }); }
+
+/* ================= ask your brain ================= */
+function brainContext(charBudget){
+  let ctx = '';
+  for(const s of sessions){
+    const chunk = '\n---\n['+ s.date.slice(0,10) +'] '+ s.title +' ('+ s.category +')\nSummary: '+ s.summary + '\nTranscript: ' + s.transcript;
+    if(ctx.length + chunk.length > charBudget) break;
+    ctx += chunk;
+  }
+  return ctx;
+}
+async function runAsk(){
+  const el = document.getElementById('askq');
+  askQ = el ? el.value.trim() : askQ;
+  if(!askQ || askBusy) return;
+  askBusy = true; askAnswer=''; render();
+  try{
+    const ctx = brainContext(60000);
+    if(!ctx){ askAnswer = 'Nothing recorded yet \u2014 capture a few sessions first.'; }
+    else{
+      const out = await callClaude(
+`You are the recall engine of a personal voice-note second brain. Answer the question using ONLY the session notes below. Reference the session title and date when it helps. If the notes don't contain the answer, say so plainly \u2014 do not invent. Be concise.
+
+SESSION NOTES:${ctx}
+
+QUESTION: ${askQ}`, 700);
+      askAnswer = out || 'Request failed \u2014 check connection or API key and try again.';
+    }
+  }catch(e){ askAnswer = 'Request failed: ' + e.message; }
+  askBusy = false; render();
+}
+
+/* ================= morning brief ================= */
+async function runBrief(){
+  if(briefBusy) return;
+  briefBusy = true; brief=''; render();
+  try{
+    const openItems = [];
+    sessions.forEach(s=> (s.actions||[]).forEach(a=>{
+      if(a.status==='open'||a.status==='waiting') openItems.push('- ['+a.status+'] '+a.text+(a.due?' (due '+a.due+')':'')+' | folder: '+s.category+' | from: '+s.title+' ('+s.date.slice(0,10)+')');
+    }));
+    const recent = sessions.slice(0,6).map(s=>'- ['+s.date.slice(0,10)+'] '+s.title+' ('+s.category+'): '+s.summary).join('\n');
+    if(!openItems.length && !recent){ brief='Nothing to brief on yet \u2014 record something first.'; }
+    else{
+      const out = await callClaude(
+`You write a sharp morning brief for a busy dentist-founder from his personal task capture system. Today is ${new Date().toDateString()}.
+
+OPEN AND WAITING TASKS:
+${openItems.join('\n') || '(none)'}
+
+RECENT SESSIONS:
+${recent || '(none)'}
+
+Write a brief with exactly these parts, plain text, no markdown symbols:
+TOP 3 TODAY \u2014 the three most urgent or highest-leverage tasks (respect due dates; overdue first).
+WAITING ON \u2014 tasks in waiting status, one line each. Skip the section if none.
+WORTH KILLING \u2014 any task that looks stale or no longer worth doing (older items with no due date). Max 2. Skip if none.
+One closing line of dry, useful perspective. Keep the whole brief under 130 words.`, 500);
+      brief = out || 'Brief failed \u2014 check connection or API key.';
+    }
+  }catch(e){ brief = 'Brief failed: ' + e.message; }
+  briefBusy = false; render();
+}
+
+/* ================= render helpers ================= */
+function fmtDur(s){ const m=Math.floor(s/60), ss=s%60; return String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0'); }
+function fmtDate(iso){ const d=new Date(iso); return d.toLocaleDateString(undefined,{day:'numeric',month:'short'})+' \u00b7 '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
+function esc(t){ const d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
+function updateLive(){ const el=document.getElementById('live'); if(el) el.innerHTML = esc((finalText + snapFinal).slice(-260)) + '<em>' + esc(interimText) + '</em>'; }
+function go(v){ view=v; currentId=null; render(); }
+function openCount(catName){
+  const list = catName==='All' ? sessions : sessions.filter(x=>(x.category||FALLBACK)===catName);
+  return list.reduce((k,x)=>k+(x.actions||[]).filter(a=>a.status==='open'||a.status==='waiting').length,0);
+}
+function actionRow(s, i, withSrc){
+  const a = s.actions[i];
+  if(a.status==='killed') return '';
+  const age = ageDays(s);
+  const ageTag = (a.status!=='done' && age>=2) ? ' <span class="age'+(age>7?' old':'')+'">'+age+'d</span>' : '';
+  const label = a.status==='open' ? 'OPEN' : a.status==='waiting' ? 'WAITING' : 'DONE';
+  return '<div class="ai '+(a.status==='done'?'done':'')+'">'+
+    '<button class="pill '+a.status+'" onclick="cycleStatus(\''+s.id+'\','+i+')">'+label+'</button>'+
+    '<div class="txt"><span class="t">'+esc(a.text)+'</span>'+(a.due?' <b class="due">'+esc(a.due)+'</b>':'')+ageTag+
+    (withSrc?'<span class="src">'+esc(s.title)+' \u00b7 '+fmtDate(s.date)+'</span>':'')+'</div>'+
+    '<button class="ico" title="Assign on WhatsApp" onclick="assignWA(\''+s.id+'\','+i+')">\uD83D\uDCAC</button>'+
+    '<a class="ico" title="Add to Google Calendar" href="'+gcalUrl(a,s)+'" target="_blank" rel="noopener">\uD83D\uDCC5</a>'+
+    '<button class="kill" title="Dismiss task" onclick="killAction(\''+s.id+'\','+i+')">\u2715</button>'+
+  '</div>';
+}
+
+/* ================= views ================= */
+function render(){
+  document.getElementById('tab-rec').className = (view==='home'||view==='detail'||view==='settings') ? 'on':'';
+  document.getElementById('tab-dig').className = view==='digest' ? 'on':'';
+  document.getElementById('tab-ask').className = view==='ask' ? 'on':'';
+  const app = document.getElementById('app');
+  if(view==='detail'){ app.innerHTML = renderDetail(); return; }
+  if(view==='digest'){ app.innerHTML = renderDigest(); return; }
+  if(view==='ask'){ app.innerHTML = renderAsk(); return; }
+  if(view==='settings'){ app.innerHTML = renderSettings(); return; }
+  app.innerHTML = renderHome();
+  updateLive();
+}
+
+function headerHtml(title){
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v12</small></div>'+
+    '<div class="hbtns">'+
+    (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
+      '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
+    '<button class="lang gear" onclick="go(\'settings\')" title="Settings">\u2699</button>'+
+    '</div></header>';
+}
+
+function renderHome(){
+  let h = headerHtml();
+  h += '<div class="hero '+(recState==='recording'?'recording':'')+'">'+
+    '<button class="recbtn" onclick="toggleRecord()" '+(recState==='processing'?'disabled':'')+'>'+(recState==='recording'?'STOP':'RECORD')+'</button>'+
+    '<div class="timer" id="timer">'+fmtDur(elapsed)+'</div>'+
+    '<div class="live" id="live"></div>'+
+    (recState==='idle' ? '<div class="hint">One tap. Keep the screen on while recording.</div><div class="hint" style="opacity:.75">'+bootStatus()+'</div><button class="typelink" onclick="showTyped=!showTyped;render()">Type it instead</button>' : '')+
+  '</div>';
+
+  if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
+  if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
+  if(storageWarn) h += '<div class="err" style="background:#2A2312;border-color:#524A25;color:#FFD98A">'+esc(storageWarn)+'</div>';
+  if(showTyped && recState==='idle'){
+    h += '<textarea id="typed" class="typedbox" rows="4" oninput="typedDraft=this.value" placeholder="Paste or type notes, then process \u2014 same pipeline as voice.">'+esc(typedDraft)+'</textarea>'+
+      '<button class="retry" style="width:100%" onclick="submitTyped()">Process with Claude</button>';
+  }
+
+  h += '<div class="sect">Sessions</div>';
+  h += '<div class="cats">'+['All'].concat(folders).map(c=>{
+    const n = openCount(c);
+    return '<button class="chip '+(activeCat===c?'on':'')+'" onclick="activeCat=\''+c.replace(/'/g,"\\'")+'\';render()">'+esc(c)+(n?' <b>'+n+'</b>':'')+'</button>';
+  }).join('')+'</div>';
+  h += '<div class="cats" style="margin-top:-4px">'+['All','tasks','note','log','mixed'].map(k=>{
+    const label = k==='All'?'All types':kindLabel(k);
+    return '<button class="chip '+(activeKind===k?'on':'')+'" onclick="activeKind=\''+k+'\';render()">'+label+'</button>';
+  }).join('')+'</div>';
+  h += '<input class="search" placeholder="Search titles, summaries, transcripts" value="'+esc(searchQ)+'" oninput="searchQ=this.value;renderList()">';
+  h += '<div id="list">'+renderListInner()+'</div>';
+  return h;
+}
+
+function renderListInner(){
+  const q = searchQ.toLowerCase();
+  const hits = sessions.filter(s => (activeCat==='All' || (s.category||FALLBACK)===activeCat) && (activeKind==='All' || (s.kind||'note')===activeKind) && (!q || (s.title+' '+s.summary+' '+s.transcript).toLowerCase().includes(q)));
+  if(!hits.length) return '<div class="empty">'+(sessions.length ? 'No matches.' : 'Nothing captured yet. Tap record and start talking.')+'</div>';
+  return hits.map(s=>{
+    const open = (s.actions||[]).filter(a=>a.status==='open'||a.status==='waiting').length;
+    return '<div class="card" onclick="currentId=\''+s.id+'\';view=\'detail\';render()">'+
+      '<h3>'+esc(s.title)+'<span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></h3>'+
+      '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+' \u00b7 '+esc(s.category||FALLBACK)+'</div>'+
+      (s.summary?'<p>'+esc(s.summary)+'</p>':'')+
+      (open?'<span class="badge">'+open+' open task'+(open>1?'s':'')+'</span>':'')+
+    '</div>';
+  }).join('');
+}
+function renderList(){ const el=document.getElementById('list'); if(el) el.innerHTML = renderListInner(); }
+
+function renderDetail(){
+  const s = sessions.find(x=>x.id===currentId);
+  if(!s){ view='home'; return renderHome(); }
+  let h = '<button class="back" onclick="go(\'home\')">\u2039 Back</button>'+
+    '<div class="dtitle">'+esc(s.title)+' <span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></div>'+
+    '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+' \u00b7 '+esc(s.category)+'</div><div class="dbody">';
+  if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
+  if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
+  if(s.summary) h += '<p>'+esc(s.summary)+'</p>';
+  if(!s.processed) h += '<div class="err">Claude processing didn\u2019t complete for this session.</div><button class="retry" onclick="retryProcess(\''+s.id+'\')">Retry processing</button>';
+  const live = (s.actions||[]).filter(a=>a.status!=='killed').length;
+  if(live){
+    h += '<div class="sect">Tasks \u00b7 tap status to cycle</div>';
+    h += s.actions.map((a,i)=>actionRow(s,i,false)).join('');
+  } else if(s.kind==='note' || s.kind==='log'){
+    h += '<div class="note">No action items \u2014 filed as a '+kindLabel(s.kind).toLowerCase()+' for reference.</div>';
+  }
+  h += '<details><summary>Full transcript</summary><div class="transcript">'+esc(s.transcript)+'</div></details>';
+  h += '<button class="danger" onclick="deleteSession(\''+s.id+'\')">Delete session</button></div>';
+  return h;
+}
+
+function renderDigest(){
+  let h = '<header><div class="brand">Digest</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
+  h += '<button class="primary" style="width:100%" onclick="runBrief()" '+(briefBusy?'disabled':'')+'>'+(briefBusy?'Writing your brief\u2026':'\u2600 Morning Brief')+'</button>';
+  if(briefBusy) h += '<div class="proc"><div class="spin"></div>THINKING\u2026</div>';
+  if(brief) h += '<div class="brief">'+esc(brief)+'</div>';
+  const cats = {};
+  sessions.forEach(s=> (s.actions||[]).forEach((a,i)=>{
+    if(a.status==='open'||a.status==='waiting'){ const c=s.category||FALLBACK; (cats[c]=cats[c]||[]).push({s,i}); }
+  }));
+  const total = Object.values(cats).reduce((n,l)=>n+l.length,0);
+  h += '<div class="sect">'+total+' open task'+(total===1?'':'s')+'</div>';
+  if(!total) return h + '<div class="empty">All clear. Open tasks from your sessions will collect here.</div>';
+  Object.keys(cats).forEach(c=>{
+    h += '<div class="sect" style="color:var(--amber)">'+esc(c)+' \u00b7 '+cats[c].length+'</div>';
+    h += cats[c].map(({s,i})=>actionRow(s,i,true)).join('');
+  });
+  return h;
+}
+
+function renderAsk(){
+  let h = '<header><div class="brand">Ask your brain</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699</button></div></header>';
+  h += '<div class="note">Questions are answered only from your own recordings \u2014 "what did I say about the Gurugram lab?", "what\u2019s pending for Spice Riot?"</div>';
+  h += '<div class="askbox"><input id="askq" placeholder="Ask anything you\u2019ve recorded\u2026" value="'+esc(askQ)+'" onkeydown="if(event.key===\'Enter\')runAsk()">'+
+    '<button class="primary" onclick="runAsk()" '+(askBusy?'disabled':'')+'>'+(askBusy?'\u2026':'Ask')+'</button></div>';
+  if(askBusy) h += '<div class="proc"><div class="spin"></div>SEARCHING YOUR SESSIONS\u2026</div>';
+  if(askAnswer) h += '<div class="answer">'+esc(askAnswer)+'</div>';
+  if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
+  return h;
+}
+
+function renderSettings(){
+  let h = '<button class="back" onclick="go(\'home\')">\u2039 Back</button>';
+  h += '<div class="dtitle">Settings</div>';
+  if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
+  h += '<div class="sect">Folders</div>';
+  h += folders.map(f=>'<div class="frow"><span>'+esc(f)+'</span>'+
+      '<button onclick="renameFolder(\''+f.replace(/'/g,"\\'")+'\')">Rename</button>'+
+      (f===FALLBACK?'':'<button class="del" onclick="deleteFolder(\''+f.replace(/'/g,"\\'")+'\')">Delete</button>')+
+    '</div>').join('');
+  h += '<div class="askbox"><input id="newfolder" placeholder="New folder name"><button class="primary" onclick="addFolder()">Add</button></div>';
+  h += '<div class="note">New recordings are auto-sorted into these folders by Claude. Renaming migrates existing sessions; deleting moves them to '+FALLBACK+'.</div>';
+  h += '<div class="sect">Backup</div>';
+  h += '<button class="retry" onclick="exportData()">Export backup (.json)</button> ';
+  h += '<label class="retry" style="display:inline-block;background:var(--raised2);color:var(--text)">Import backup<input type="file" accept="application/json" style="display:none" onchange="importData(event)"></label>';
+  h += '<div class="note">Everything lives in this browser\u2019s storage. Export regularly \u2014 clearing browser data or losing this device loses your notes.</div>';
+  h += '<div class="sect">API key</div>';
+  h += '<button class="retry" style="background:var(--raised2);color:var(--text)" onclick="setKey()">'+(getKey()?'Replace key \u2713':'Set API key')+'</button>';
+  return h;
+}
+
+/* ================= init ================= */
+loadAll();
+render();
+</script>
+</body>
+</html>
