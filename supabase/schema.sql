@@ -25,8 +25,13 @@ create table if not exists public.sessions (
   kind text not null default 'note',
   category text not null default 'Personal',
   processed boolean not null default false,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- tombstone: deletes sync as a flag so other devices drop their local copy
+  -- instead of re-uploading it (row-deletes looked like "new local session" to them)
+  deleted_at timestamptz
 );
+-- migration for databases created before deleted_at existed
+alter table public.sessions add column if not exists deleted_at timestamptz;
 create index if not exists sessions_user_date_idx on public.sessions(user_id, date desc);
 
 create table if not exists public.actions (

@@ -240,16 +240,23 @@ async function pullFromCloud(){
   ]);
   if(cFolders && cFolders.length) folders = cFolders.map(f=>f.name);
   if(cSessions){
+    // Merge, never blind-replace: a session recorded offline on this device may not
+    // be in the cloud yet — losing it here was a real data-loss path. Deletes sync as
+    // deleted_at tombstones so a delete on one device can't be resurrected by another.
+    const cloudIds = new Set(cSessions.map(s=>s.id));
+    const localOnly = sessions.filter(s=>!cloudIds.has(s.id));
     const actionsBySession = {};
     (cActions||[]).forEach(a=>{ (actionsBySession[a.session_id] = actionsBySession[a.session_id]||[])[a.idx] = { text:a.text, due:a.due, status:a.status, archivedAt: a.archived_at ? new Date(a.archived_at).getTime() : null }; });
     const expensesBySession = {};
     (cExpenses||[]).forEach(e=>{ (expensesBySession[e.session_id] = expensesBySession[e.session_id]||[])[e.idx] = { desc:e.description, amount:Number(e.amount), currency:e.currency }; });
-    sessions = cSessions.map(s=>({
+    sessions = cSessions.filter(s=>!s.deleted_at).map(s=>({
       id:s.id, date:s.date, duration:s.duration, transcript:s.transcript,
       title:s.title, summary:s.summary, kind:s.kind, category:s.category, processed:s.processed,
       actions:(actionsBySession[s.id]||[]).filter(Boolean),
       expenses:(expensesBySession[s.id]||[]).filter(Boolean),
     }));
+    localOnly.forEach(s=>{ sessions.push(s); trySync(()=>pushSession(s)); });
+    sessions.sort((a,b)=> new Date(b.date) - new Date(a.date));
   }
   loadFix(); saveAll();
 }
@@ -284,7 +291,9 @@ async function pushSession(s){
 async function pushDeleteSession(id){
   if(!sbUser) return;
   const client = await getSb();
-  await client.from('sessions').delete().eq('id', id);
+  // Tombstone, not row-delete: other devices still hold this session locally and
+  // would re-upload it as "new" on their next merge if the cloud row vanished.
+  await client.from('sessions').update({ deleted_at: new Date().toISOString() }).eq('id', id);
 }
 async function pushFolders(){
   if(!sbUser) return;
@@ -831,7 +840,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v16.1</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v16.2</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
