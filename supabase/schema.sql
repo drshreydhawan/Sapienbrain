@@ -46,7 +46,7 @@ create table if not exists public.expenses (
   session_id text not null references public.sessions(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   idx int not null,
-  desc text not null,
+  description text not null,
   amount numeric not null,
   currency text not null default 'INR',
   unique(session_id, idx)

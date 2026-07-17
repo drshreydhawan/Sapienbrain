@@ -219,7 +219,7 @@ async function pullFromCloud(){
     const actionsBySession = {};
     (cActions||[]).forEach(a=>{ (actionsBySession[a.session_id] = actionsBySession[a.session_id]||[])[a.idx] = { text:a.text, due:a.due, status:a.status, archivedAt: a.archived_at ? new Date(a.archived_at).getTime() : null }; });
     const expensesBySession = {};
-    (cExpenses||[]).forEach(e=>{ (expensesBySession[e.session_id] = expensesBySession[e.session_id]||[])[e.idx] = { desc:e.desc, amount:Number(e.amount), currency:e.currency }; });
+    (cExpenses||[]).forEach(e=>{ (expensesBySession[e.session_id] = expensesBySession[e.session_id]||[])[e.idx] = { desc:e.description, amount:Number(e.amount), currency:e.currency }; });
     sessions = cSessions.map(s=>({
       id:s.id, date:s.date, duration:s.duration, transcript:s.transcript,
       title:s.title, summary:s.summary, kind:s.kind, category:s.category, processed:s.processed,
@@ -254,7 +254,7 @@ async function pushSession(s){
   const actionRows = (s.actions||[]).map((a,idx)=>({ session_id:s.id, user_id:sbUser.id, idx, text:a.text, due:a.due||null, status:a.status||'open', archived_at:a.archivedAt ? new Date(a.archivedAt).toISOString() : null }));
   if(actionRows.length) await client.from('actions').insert(actionRows);
   await client.from('expenses').delete().eq('session_id', s.id);
-  const expenseRows = (s.expenses||[]).map((e,idx)=>({ session_id:s.id, user_id:sbUser.id, idx, desc:e.desc, amount:e.amount, currency:e.currency||'INR' }));
+  const expenseRows = (s.expenses||[]).map((e,idx)=>({ session_id:s.id, user_id:sbUser.id, idx, description:e.desc, amount:e.amount, currency:e.currency||'INR' }));
   if(expenseRows.length) await client.from('expenses').insert(expenseRows);
 }
 async function pushDeleteSession(id){
