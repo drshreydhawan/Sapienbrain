@@ -28,10 +28,14 @@ create table if not exists public.sessions (
   updated_at timestamptz not null default now(),
   -- tombstone: deletes sync as a flag so other devices drop their local copy
   -- instead of re-uploading it (row-deletes looked like "new local session" to them)
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  -- hides a session from the main list/dashboard without deleting it; unlike
+  -- dismissed tasks this never auto-purges — it's real content, just decluttered
+  archived boolean not null default false
 );
--- migration for databases created before deleted_at existed
+-- migrations for databases created before these columns existed
 alter table public.sessions add column if not exists deleted_at timestamptz;
+alter table public.sessions add column if not exists archived boolean not null default false;
 create index if not exists sessions_user_date_idx on public.sessions(user_id, date desc);
 
 create table if not exists public.actions (
