@@ -34,10 +34,11 @@ export default async function handler(req, res) {
   };
 
   const stamp = new Date().toISOString().slice(0, 10);
-  // recall-backups was created with --access private, which makes the store
-  // itself the single access-control point — passing an `access` value on
-  // put() (public OR private) is rejected outright for a private store.
+  // recall-backups is a private-access store — access:'private' is required
+  // on put() (this is a real @vercel/blob v2 option; the installed 0.27.x was
+  // stale and only understood 'public', hence the earlier 500s).
   const { url } = await put('backups/backup-' + stamp + '.json', JSON.stringify(snapshot), {
+    access: 'private',
     contentType: 'application/json',
     addRandomSuffix: false,
   });
