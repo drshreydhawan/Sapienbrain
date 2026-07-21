@@ -133,6 +133,41 @@
   .err{background:#2A1518;border:1px solid #52252A;color:#FFB3AE;border-radius:12px;padding:12px 14px;font-size:13.5px;margin:12px 0}
   .note{color:var(--faint);font-size:12.5px;margin:8px 0}
 
+  /* bottom sheet — replaces native confirm()/prompt() popups */
+  .sheet-backdrop{position:fixed;inset:0;background:rgba(6,9,16,.6);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadein .15s ease}
+  .sheet{width:100%;max-width:520px;background:var(--raised);border:1px solid var(--line);border-radius:22px 22px 0 0;padding:10px 20px max(22px, env(safe-area-inset-bottom));animation:sheetup .22s cubic-bezier(.2,.9,.3,1)}
+  .sheet-handle{width:36px;height:4px;border-radius:2px;background:var(--line2);margin:2px auto 16px}
+  .sheet h3{font-family:var(--disp);font-weight:700;font-size:18px;letter-spacing:-.01em;margin-bottom:6px}
+  .sheet p{color:var(--dim);font-size:13.5px;margin-bottom:14px;line-height:1.45}
+  .sheet input{width:100%;background:var(--raised2);border:1px solid var(--line);border-radius:12px;color:var(--text);padding:12px 13px;font-size:15px;margin-bottom:14px}
+  .sheet-actions{display:flex;gap:10px}
+  .sheet-actions button{flex:1;border:none;border-radius:12px;padding:13px;font-weight:600;font-size:14px;cursor:pointer}
+  .sheet-actions .cancel{background:var(--raised2);color:var(--text)}
+  .sheet-actions .confirm{background:var(--rec);color:#fff}
+  .sheet-actions .confirm.neutral{background:var(--blue)}
+  @keyframes sheetup{from{transform:translateY(24px);opacity:.4}to{transform:translateY(0);opacity:1}}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+
+  /* tag chips + segmented toggle (session detail) */
+  .tagrow{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .tagchip{display:inline-flex;align-items:center;font:700 11px 'IBM Plex Mono',monospace;letter-spacing:.05em;border-radius:999px;padding:6px 12px;background:var(--raised);border:1px solid var(--line)}
+  .tagchip.kind-tasks{color:var(--amber);border-color:rgba(255,176,32,.35)}
+  .tagchip.kind-note{color:var(--blue);border-color:rgba(91,141,239,.35)}
+  .tagchip.kind-log{color:var(--dim)}
+  .tagchip.kind-mixed{color:var(--ok);border-color:rgba(61,203,143,.35)}
+  .folderchip{cursor:pointer;position:relative}
+  .folderchip select{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+  .seg{display:flex;background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:3px;margin:14px 0 4px;gap:3px}
+  .seg button{flex:1;background:none;border:none;border-radius:9px;padding:9px 0;color:var(--dim);font:600 13px 'Inter',sans-serif;cursor:pointer}
+  .seg button.on{background:var(--raised2);color:var(--text)}
+
+  /* coming-up card (home) */
+  .comingup{background:linear-gradient(160deg,#1B2438,#171F2E);border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:16px;padding:14px 15px;margin:14px 0 4px;cursor:pointer}
+  .comingup .lbl{font:600 10px var(--disp);letter-spacing:.14em;color:var(--faint);text-transform:uppercase}
+  .comingup .txt2{font-weight:600;font-size:14.5px;margin-top:5px}
+  .chipgrid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:4px 0 6px}
+  .chipgrid .chip{flex:none}
+
   nav{position:fixed;bottom:0;left:0;right:0;background:rgba(13,18,30,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line)}
   .nav-in{max-width:520px;margin:0 auto;display:flex}
   nav button{flex:1;background:none;border:none;color:var(--faint);font:600 10.5px var(--disp);letter-spacing:.1em;padding:10px 0 max(12px, env(safe-area-inset-bottom));cursor:pointer;text-transform:uppercase;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative;transition:color .15s}
@@ -170,6 +205,7 @@ let useWhisper = true;
 let showTyped = false, typedDraft = '';
 let askQ = '', askAnswer = '', askBusy = false;
 let brief = '', briefBusy = false;
+let detailTab = 'notes';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -346,6 +382,36 @@ function trySync(fn){ if(!sbUser) return; fn().catch(e=>{ console.error('sync fa
 
 window.addEventListener('online', ()=>{ if(sbUser) trySync(pushAllSessions); });
 
+/* ================= bottom sheet (replaces native confirm()/prompt()) ================= */
+let sheetResolve = null;
+function closeSheet(result){
+  const el = document.getElementById('sheet-overlay');
+  if(el) el.remove();
+  if(sheetResolve){ const r = sheetResolve; sheetResolve = null; r(result); }
+}
+function showSheet(opts){
+  return new Promise(resolve=>{
+    sheetResolve = resolve;
+    const el = document.createElement('div');
+    el.id = 'sheet-overlay'; el.className = 'sheet-backdrop';
+    el.onclick = (e)=>{ if(e.target===el) closeSheet(null); };
+    el.innerHTML = '<div class="sheet">'+
+      '<div class="sheet-handle"></div>'+
+      '<h3>'+esc(opts.title||'')+'</h3>'+
+      (opts.body?'<p>'+esc(opts.body)+'</p>':'')+
+      (opts.input?'<input id="sheet-input" type="text" placeholder="'+esc(opts.inputPlaceholder||'')+'" value="'+esc(opts.inputValue||'')+'">':'')+
+      '<div class="sheet-actions">'+
+        '<button class="cancel" onclick="closeSheet(null)">'+esc(opts.cancelLabel||'Cancel')+'</button>'+
+        '<button class="confirm'+(opts.danger?'':' neutral')+'" id="sheet-confirm">'+esc(opts.confirmLabel||'Confirm')+'</button>'+
+      '</div></div>';
+    document.body.appendChild(el);
+    const confirmBtn = document.getElementById('sheet-confirm');
+    const inputEl = document.getElementById('sheet-input');
+    if(inputEl){ inputEl.focus(); inputEl.select(); inputEl.onkeydown=(e)=>{ if(e.key==='Enter') confirmBtn.click(); }; }
+    confirmBtn.onclick = ()=> closeSheet(inputEl ? inputEl.value : true);
+  });
+}
+
 window.onerror = function(msg, src, line){
   try{
     let b = document.getElementById('crashbar');
@@ -389,13 +455,13 @@ function saveAll(){
 }
 function getKey(){ try{ return localStorage.getItem('anthropic-key') || ''; }catch(e){ return ''; } }
 function getOAKey(){ try{ return localStorage.getItem('openai-key') || ''; }catch(e){ return ''; } }
-function setOAKey(){
-  const k = prompt('Paste your OpenAI API key (starts with sk-). Used only for Whisper transcription, stored only on this device.');
+async function setOAKey(){
+  const k = await showSheet({title:'OpenAI API key', body:'Used only for Whisper transcription. Stored only on this device.', input:true, inputPlaceholder:'sk-...', confirmLabel:'Save'});
   if(k && k.trim()){ try{ localStorage.setItem('openai-key', k.trim()); }catch(e){} lastError=''; render(); return true; }
   return false;
 }
-function setKey(){
-  const k = prompt('Paste your Anthropic API key (starts with sk-ant-). It is stored only on this device.');
+async function setKey(){
+  const k = await showSheet({title:'Anthropic API key', body:'Used for summaries & classification. Stored only on this device.', input:true, inputPlaceholder:'sk-ant-...', confirmLabel:'Save'});
   if(k && k.trim()){ try{ localStorage.setItem('anthropic-key', k.trim()); }catch(e){} lastError=''; render(); return true; }
   return false;
 }
@@ -541,7 +607,7 @@ function submitTyped(){
 /* ================= claude ================= */
 async function callClaude(userContent, maxTokens){
   let key = getKey();
-  if(!key){ if(!setKey()) return null; key = getKey(); }
+  if(!key){ const ok = await setKey(); if(!ok) return null; key = getKey(); }
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{
@@ -600,7 +666,7 @@ async function processTranscript(transcript, dur){
   sessions.unshift(session);
   saveAll();
   trySync(()=>pushSession(session));
-  recState = 'idle'; currentId = session.id; view = 'detail'; render();
+  recState = 'idle'; currentId = session.id; view = 'detail'; detailTab = 'notes'; render();
 }
 
 function applyResult(s, r){
@@ -667,8 +733,9 @@ function folderColor(name){
 }
 function kindLabel(k){ return k==='tasks'?'TASKS':k==='note'?'NOTE':k==='log'?'LOG':k==='mixed'?'MIXED':'NOTE'; }
 function ageDays(s){ return Math.floor((Date.now() - new Date(s.date).getTime())/86400000); }
-function deleteSession(id){
-  if(!confirm('Delete this session and its transcript?')) return;
+async function deleteSession(id){
+  const ok = await showSheet({title:'Delete this session?', body:'This removes the recording and its transcript for good.', confirmLabel:'Delete', cancelLabel:'Keep it', danger:true});
+  if(!ok) return;
   sessions = sessions.filter(x=>x.id!==id);
   saveAll(); trySync(()=>pushDeleteSession(id)); view='home'; render();
 }
@@ -681,8 +748,8 @@ function addFolder(){
   if(folders.some(f=>f.toLowerCase()===name.toLowerCase())){ lastError='That folder already exists.'; render(); return; }
   folders.push(name); saveAll(); trySync(pushFolders); render();
 }
-function renameFolder(old){
-  const name = prompt('Rename "'+old+'" to:', old);
+async function renameFolder(old){
+  const name = await showSheet({title:'Rename folder', input:true, inputValue:old, confirmLabel:'Save'});
   if(!name || !name.trim() || name.trim()===old) return;
   const n = name.trim();
   if(folders.some(f=>f.toLowerCase()===n.toLowerCase())){ lastError='A folder with that name already exists.'; render(); return; }
@@ -691,10 +758,11 @@ function renameFolder(old){
   if(activeCat===old) activeCat=n;
   saveAll(); trySync(pushAllSessions); render();
 }
-function deleteFolder(name){
+async function deleteFolder(name){
   if(name===FALLBACK){ lastError='"'+FALLBACK+'" is the fallback folder and can\u2019t be deleted.'; render(); return; }
   const n = sessions.filter(s=>s.category===name).length;
-  if(!confirm('Delete folder "'+name+'"?'+(n?' '+n+' session(s) will move to '+FALLBACK+'.':''))) return;
+  const ok = await showSheet({title:'Delete "'+name+'"?', body:n?(n+' session(s) will move to '+FALLBACK+'.'):'This folder has no sessions in it.', confirmLabel:'Delete folder', cancelLabel:'Keep it', danger:true});
+  if(!ok) return;
   folders = folders.filter(f=>f!==name);
   sessions.forEach(s=>{ if(s.category===name) s.category=FALLBACK; });
   if(activeCat===name) activeCat='All';
@@ -876,7 +944,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v17</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v18</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
@@ -886,9 +954,19 @@ function headerHtml(title){
 
 function renderHome(){
   let h = headerHtml();
-  const openN = allOpenTasks().length;
+  const openTasks = allOpenTasks();
+  const openN = openTasks.length;
   if(recState==='idle' && !showTyped){
     h += '<div class="mini">'+openN+' open task'+(openN===1?'':'s')+(sessions.length?' \u00b7 '+sessions.length+' session'+(sessions.length===1?'':'s'):'')+'</div>';
+    const upcoming = openTasks.find(r=>r.a.due);
+    if(upcoming){
+      const overdue = isOverdue(upcoming.a);
+      h += '<div class="comingup" onclick="currentId=\''+upcoming.s.id+'\';view=\'detail\';detailTab=\'notes\';render()">'+
+        '<div class="lbl" style="'+(overdue?'color:var(--rec)':'')+'">'+(overdue?'Overdue':'Coming Up')+'</div>'+
+        '<div class="txt2">'+esc(upcoming.a.text)+'</div>'+
+        '<div class="meta" style="margin-top:4px">'+esc(upcoming.a.due)+' \u00b7 '+esc(upcoming.s.title)+'</div>'+
+      '</div>';
+    }
   }
   h += '<div class="hero '+(recState==='recording'?'recording':'')+'">'+
     '<button class="recbtn" onclick="toggleRecord()" '+(recState==='processing'?'disabled':'')+'>'+(recState==='recording'?'STOP':'RECORD')+'</button>'+
@@ -934,7 +1012,7 @@ function renderListInner(){
     const day = dayLabel(s.date);
     if(day !== lastDay){ out += '<div class="dayhead">'+day+'</div>'; lastDay = day; }
     const open = (s.actions||[]).filter(a=>a.status==='open'||a.status==='waiting').length;
-    out += '<div class="card" style="border-left:3px solid '+folderColor(s.category||FALLBACK)+'" onclick="currentId=\''+s.id+'\';view=\'detail\';render()">'+
+    out += '<div class="card" style="border-left:3px solid '+folderColor(s.category||FALLBACK)+'" onclick="currentId=\''+s.id+'\';view=\'detail\';detailTab=\'notes\';render()">'+
       '<h3>'+esc(s.title)+'<span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></h3>'+
       '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+' \u00b7 '+esc(s.category||FALLBACK)+'</div>'+
       (s.summary?'<p>'+esc(s.summary)+'</p>':'')+
@@ -949,29 +1027,43 @@ function renderDetail(){
   const s = sessions.find(x=>x.id===currentId);
   if(!s){ view='home'; return renderHome(); }
   let h = '<button class="back" onclick="go(\'sessions\')">\u2039 Back</button>'+
-    '<div class="dtitle">'+esc(s.title)+' <span class="kindtag '+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span></div>'+
-    '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+'</div>'+
-    '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><i class="dot" style="background:'+folderColor(s.category)+'"></i><select class="lang" onchange="moveFolder(\''+s.id+'\',this.value)">'+
-      folders.map(f=>'<option value="'+esc(f)+'" '+(f===s.category?'selected':'')+'>'+esc(f)+'</option>').join('')+
-    '</select></div><div class="dbody">';
+    '<div class="dtitle">'+esc(s.title)+'</div>'+
+    '<div class="meta">'+fmtDate(s.date)+' \u00b7 '+fmtDur(s.duration)+'</div>';
+  h += '<div class="tagrow">'+
+      '<span class="tagchip kind-'+esc(s.kind||'note')+'">'+kindLabel(s.kind)+'</span>'+
+      '<span class="tagchip folderchip"><i class="dot" style="background:'+folderColor(s.category)+'"></i>'+esc(s.category)+
+        '<select onchange="moveFolder(\''+s.id+'\',this.value)">'+folders.map(f=>'<option value="'+esc(f)+'" '+(f===s.category?'selected':'')+'>'+esc(f)+'</option>').join('')+'</select>'+
+      '</span>'+
+    '</div>';
+  h += '<div class="seg"><button class="'+(detailTab==='notes'?'on':'')+'" onclick="detailTab=\'notes\';render()">Summary</button><button class="'+(detailTab==='transcript'?'on':'')+'" onclick="detailTab=\'transcript\';render()">Transcript</button></div>';
+  h += '<div class="dbody">';
   if(recState==='processing') h += '<div class="proc"><div class="spin"></div>PROCESSING WITH CLAUDE\u2026</div>';
   if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
-  if(s.summary) h += '<p>'+esc(s.summary)+'</p>';
-  if(!s.processed) h += '<div class="err">Claude processing didn\u2019t complete for this session.</div><button class="retry" onclick="retryProcess(\''+s.id+'\')">Retry processing</button>';
-  const live = (s.actions||[]).filter(a=>a.status!=='killed').length;
-  if(live){
-    h += '<div class="sect">Tasks \u00b7 tap status to cycle</div>';
-    h += s.actions.map((a,i)=>actionRow(s,i,false)).join('');
-  } else if(s.kind==='note' || s.kind==='log'){
-    h += '<div class="note">No action items \u2014 filed as a '+kindLabel(s.kind).toLowerCase()+' for reference.</div>';
+  if(detailTab==='transcript'){
+    h += '<div class="transcript">'+esc(s.transcript)+'</div>';
+  } else {
+    if(s.summary) h += '<p>'+esc(s.summary)+'</p>';
+    if(!s.processed) h += '<div class="err">Claude processing didn\u2019t complete for this session.</div><button class="retry" onclick="retryProcess(\''+s.id+'\')">Retry processing</button>';
+    const live = (s.actions||[]).filter(a=>a.status!=='killed').length;
+    if(live){
+      h += '<div class="sect">Tasks \u00b7 tap status to cycle</div>';
+      h += s.actions.map((a,i)=>actionRow(s,i,false)).join('');
+    } else if(s.kind==='note' || s.kind==='log'){
+      h += '<div class="note">No action items \u2014 filed as a '+kindLabel(s.kind).toLowerCase()+' for reference.</div>';
+    }
+    if((s.expenses||[]).length){
+      h += '<div class="sect">Expenses</div>';
+      h += s.expenses.map(e=>'<div class="frow"><span>'+esc(e.desc)+'</span><b style="color:var(--ok);font:700 13px \'IBM Plex Mono\',monospace">'+esc(e.currency)+' '+e.amount.toLocaleString()+'</b></div>').join('');
+    }
+    h += '<button class="chip" style="margin-top:16px" onclick="askAboutSession(\''+s.id+'\')">Ask about this session</button>';
   }
-  if((s.expenses||[]).length){
-    h += '<div class="sect">Expenses</div>';
-    h += s.expenses.map(e=>'<div class="frow"><span>'+esc(e.desc)+'</span><b style="color:var(--ok);font:700 13px \'IBM Plex Mono\',monospace">'+esc(e.currency)+' '+e.amount.toLocaleString()+'</b></div>').join('');
-  }
-  h += '<details><summary>Full transcript</summary><div class="transcript">'+esc(s.transcript)+'</div></details>';
   h += '<button class="danger" onclick="deleteSession(\''+s.id+'\')">Delete session</button></div>';
   return h;
+}
+function askAboutSession(sid){
+  const s = sessions.find(x=>x.id===sid); if(!s) return;
+  askQ = 'About "'+s.title+'": '; askAnswer=''; view='ask'; render();
+  const el = document.getElementById('askq'); if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 
 function renderDashboard(){
@@ -1017,18 +1109,23 @@ function renderDashboard(){
 
 function renderAsk(){
   let h = '<header><div class="brand">Ask your brain</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699\ufe0e</button></div></header>';
-  h += '<div class="note">Questions are answered only from your own recordings \u2014 "what did I say about the Gurugram lab?", "what\u2019s pending for Spice Riot?"</div>';
+  if(!askAnswer && !askBusy){
+    h += '<div class="note" style="text-align:center;margin-top:6px">Questions are answered only from your own recordings \u2014 "what did I say about the Gurugram lab?", "what\u2019s pending for Spice Riot?"</div>';
+  }
   h += '<div class="askbox"><input id="askq" placeholder="Ask anything you\u2019ve recorded\u2026" value="'+esc(askQ)+'" onkeydown="if(event.key===\'Enter\')runAsk()">'+
     '<button class="primary" onclick="runAsk()" '+(askBusy?'disabled':'')+'>'+(askBusy?'\u2026':'Ask')+'</button></div>';
   if(!askAnswer && !askBusy && sessions.length){
-    h += '<div class="cats">'+
+    h += '<div class="chipgrid">'+
       '<button class="chip" onclick="askSuggest(this.textContent)">What is still pending?</button>'+
       '<button class="chip" onclick="askSuggest(this.textContent)">What did I record this week?</button>'+
       '<button class="chip" onclick="askSuggest(this.textContent)">Any expenses I mentioned?</button>'+
     '</div>';
   }
   if(askBusy) h += '<div class="proc"><div class="spin"></div>SEARCHING YOUR SESSIONS\u2026</div>';
-  if(askAnswer) h += '<div class="answer">'+esc(askAnswer)+'</div>';
+  if(askAnswer){
+    h += '<p style="white-space:pre-wrap;margin-top:14px">'+esc(askAnswer)+'</p>';
+    h += '<button class="chip" style="margin-top:10px" onclick="askQ=\'\';askAnswer=\'\';render()">Ask something else</button>';
+  }
   if(lastError) h += '<div class="err">'+esc(lastError)+'</div>';
   return h;
 }
