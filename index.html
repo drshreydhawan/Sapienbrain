@@ -646,7 +646,7 @@ For "category" pick exactly one of: ${folders.join(' | ')}.
 Guide for the standard folders (ignore any that no longer exist): Clinic = dental clinic operations, patients, staff, labs, equipment. Bytesized = OSCE Coach, dental education, software products. Spice Riot = the food brand. Personal = family, errands, health, travel. Ideas = new product or business concepts. Custom folders should be matched by name.
 For "due": today is ${new Date().toISOString().slice(0,10)}. Resolve relative time expressions to real dates: "tomorrow", "next Tuesday", "in 3 days", "by Friday", "end of month" all become an actual YYYY-MM-DD. If a task is spoken as recurring or has no time reference, leave due null \u2014 do not guess a date that wasn't implied.
 action_items should be EMPTY for "note" and "log" kind sessions unless something genuinely actionable slipped in \u2014 do not invent tasks just to fill the field. Never pad a pure thought or reflection with a manufactured to-do.
-"expenses": only include a line if an actual amount of money spent, owed, or quoted is mentioned (a price, a bill, "spent X on Y", "the quote was X"). Assume INR unless another currency is stated. Do not invent amounts or log routine mentions of money with no figure attached. Empty array if none.
+"expenses": only include a line if an amount was actually spent, is a confirmed bill/invoice, or a firm quote was given (a price, a bill, "spent X on Y", "the quote was X"). Assume INR unless another currency is stated. Do NOT log a tentative or unconfirmed figure — phrases like "I think it's around X", "some X or something", "need to check/confirm if X is still owed" describe uncertainty, not a real expense; that belongs as an action item to verify instead ("Confirm with [person] whether the X payment is still due"), never as an expense line. Do not invent amounts or log routine mentions of money with no figure attached. Empty array if none.
 
 TRANSCRIPT:
 ${transcript}`;
@@ -963,7 +963,7 @@ function render(){
 }
 
 function headerHtml(title){
-  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v19</small></div>'+
+  return '<header><div class="brand">'+(title||'Re<span>call</span>')+' <small style="font:500 10px \'IBM Plex Mono\',monospace;color:var(--faint)">v20</small></div>'+
     '<div class="hbtns">'+
     (view==='home' ? '<select class="lang" id="lang" '+(recState!=='idle'?'disabled':'')+'>'+
       '<option value="en-IN">EN-IN</option><option value="en-US">EN-US</option><option value="hi-IN">HI-IN</option><option value="en-AU">EN-AU</option></select>' : '')+
