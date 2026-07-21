@@ -34,11 +34,10 @@ export default async function handler(req, res) {
   };
 
   const stamp = new Date().toISOString().slice(0, 10);
-  // The store itself was created with --access private, so every blob in it is
-  // already private regardless of this flag; @vercel/blob currently only accepts
-  // 'public' here (it's the per-blob ACL relative to the store's own access mode).
+  // recall-backups was created with --access private, which makes the store
+  // itself the single access-control point — passing an `access` value on
+  // put() (public OR private) is rejected outright for a private store.
   const { url } = await put('backups/backup-' + stamp + '.json', JSON.stringify(snapshot), {
-    access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
   });
