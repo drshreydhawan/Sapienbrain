@@ -933,12 +933,6 @@ function allOpenTasks(){
   });
   return out;
 }
-function monthExpenses(){
-  const now = new Date(); const ym = now.toISOString().slice(0,7);
-  const rows = [];
-  sessions.forEach(s=> { if(s.archived) return; (s.expenses||[]).forEach(e=>{ if(s.date.slice(0,7)===ym) rows.push({s,e}); }); });
-  return rows;
-}
 
 /* ================= views ================= */
 let lastView = '';
@@ -1099,12 +1093,9 @@ function renderDashboard(){
   let h = '<header><div class="brand">Dashboard</div><div class="hbtns"><button class="lang gear" onclick="go(\'settings\')">\u2699\ufe0e</button></div></header>';
   const rows = allOpenTasks();
   const overdueN = rows.filter(r=>isOverdue(r.a)).length;
-  const exp = monthExpenses();
-  const inr = exp.reduce((n,{e})=>n + (e.currency==='INR' ? e.amount : 0), 0);
-  h += '<div class="stats">'+
+  h += '<div class="stats" style="grid-template-columns:repeat(2,minmax(0,1fr))">'+
     '<div class="stat amber"><b>'+rows.length+'</b><span>Open</span></div>'+
     '<div class="stat'+(overdueN?' warn':'')+'"><b>'+overdueN+'</b><span>Overdue</span></div>'+
-    '<div class="stat good"><b>\u20b9'+inr.toLocaleString('en-IN')+'</b><span>This month</span></div>'+
   '</div>';
 
   h += '<button class="primary" style="width:100%;margin-top:12px" onclick="runBrief()" '+(briefBusy?'disabled':'')+'>'+(briefBusy?'Writing your brief\u2026':'\u2600 Morning Brief')+'</button>';
@@ -1114,19 +1105,6 @@ function renderDashboard(){
   h += '<div class="sect">Tasks \u00b7 by due date</div>';
   if(!rows.length) h += '<div class="empty">All clear. Open tasks from your sessions will collect here.</div>';
   else h += rows.map(({s,a,i})=>actionRow(s,i,true)).join('');
-
-  const byCur = {};
-  exp.forEach(({e})=>{ byCur[e.currency] = (byCur[e.currency]||0) + e.amount; });
-  h += '<div class="sect">This month\u2019s expenses</div>';
-  if(!exp.length) h += '<div class="empty">Nothing logged. Mention an amount while recording \u2014 "spent 4000 on lab fees" \u2014 and it lands here.</div>';
-  else{
-    h += '<div class="brief" style="background:linear-gradient(160deg,#1E2A22,#171F1B);border-color:#2A4536">'+
-      Object.keys(byCur).map(c=>c+' '+byCur[c].toLocaleString()).join('  \u00b7  ')+' total</div>';
-    h += exp.slice(0,12).map(({s,e})=>
-      '<div class="frow"><span>'+esc(e.desc)+'<span class="src" style="display:block">'+esc(s.title)+' \u00b7 '+fmtDate(s.date)+'</span></span>'+
-      '<b style="color:var(--ok);font:700 13px \'IBM Plex Mono\',monospace">'+esc(e.currency)+' '+e.amount.toLocaleString()+'</b></div>'
-    ).join('');
-  }
 
   h += '<div class="sect">Folders</div>';
   h += '<div class="cats">'+folders.map(c=>{
